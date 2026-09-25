@@ -1,0 +1,22 @@
+{
+  "id": "springgis-keystore",
+  "displayName": "SpringGIS Android Keystore",
+  "version": "0.1.1",
+  "description": "P-256 terminal key generation and signing for SpringAutumn Auth",
+  "engines": {
+    "HBuilderX": "^3.6.9",
+    "uni-app": "^3.1.0"
+  },
+  "dcloudext": {
+    "type": "uts",
+    "declaration": {
+      "ads": "无",
+      "data": "不采集设备硬件信息；仅在应用私有 Android Keystore 中生成密钥",
+      "permissions": "无额外 Android 运行时权限"
+    }
+  },
+  "uni_modules": {
+    "dependencies": [],
+    "encrypt": []
+  }
+}

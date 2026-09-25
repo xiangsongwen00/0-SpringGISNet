@@ -1,0 +1,44 @@
+{
+  "name": "spring-and-autumn-gis",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Lightweight 3D GIS engine (library + demo).",
+  "main": "./dist/spring-and-autumn-gis.umd.js",
+  "module": "./dist/spring-and-autumn-gis.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/spring-and-autumn-gis.es.js",
+      "require": "./dist/spring-and-autumn-gis.umd.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:terrain": "npm run build && node scripts/test-terrain-stitch.mjs",
+    "test:layers": "npm run build && node scripts/test-layer-management.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/three": "^0.182.0",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "three": "^0.182.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.1.4",
+    "vue-tsc": "^2.0.0"
+  },
+  "dependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
+    "pbf": "^5.1.2",
+    "spring-autumn-gis": "file:../../SpringAndAutumnGIS/SpringAndAutumnGIS",
+    "vue": "^3.5.13"
+  }
+}

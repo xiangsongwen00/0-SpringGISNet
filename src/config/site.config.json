@@ -1,0 +1,33 @@
+{
+  "page": {
+    "showHero": true,
+    "showAbout": true,
+    "showEngineDemo": true,
+    "showWorks": false,
+    "showArticles": true,
+    "showTechnology": true,
+    "showNotes": true,
+    "showFooterContact": true,
+    "showCooperation": false,
+    "showUniversityProjects": false,
+    "showConsulting": false,
+    "showCaseStudies": true,
+    "showCommunity": false,
+    "showNews": false
+  },
+  "site": {
+    "name": "SpringAutumn GIS",
+    "brand": "春秋GIS",
+    "contact": {
+      "name": "凡语春秋",
+      "email": "spring@springautumngis.com",
+      "phone": "18679593530",
+      "record": "黔，xxxxx"
+    }
+  },
+  "stats": {
+    "years": "10+",
+    "projects": "100+",
+    "institutions": "50+"
+  }
+}

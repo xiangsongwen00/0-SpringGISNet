@@ -1,0 +1,3 @@
+export type EnsureKeyPair = (alias: string) => string;
+export type SignPayload = (alias: string, payload: string) => string;
+export type DeleteKeyPair = (alias: string) => void;

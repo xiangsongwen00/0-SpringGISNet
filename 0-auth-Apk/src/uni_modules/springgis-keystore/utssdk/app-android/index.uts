@@ -1,0 +1,47 @@
+import KeyPairGenerator from "java.security.KeyPairGenerator";
+import KeyStore from "java.security.KeyStore";
+import PrivateKey from "java.security.PrivateKey";
+import Signature from "java.security.Signature";
+import ECGenParameterSpec from "java.security.spec.ECGenParameterSpec";
+import Base64 from "android.util.Base64";
+import KeyGenParameterSpec from "android.security.keystore.KeyGenParameterSpec";
+import KeyProperties from "android.security.keystore.KeyProperties";
+
+const STORE = "AndroidKeyStore";
+
+export function ensureKeyPair(alias: string): string {
+  const keyStore = KeyStore.getInstance(STORE);
+  keyStore.load(null);
+  if (!keyStore.containsAlias(alias)) {
+    const generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, STORE);
+    const spec = new KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
+      .setDigests(KeyProperties.DIGEST_SHA256)
+      .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
+      .setUserAuthenticationRequired(false)
+      .build();
+    generator.initialize(spec);
+    generator.generateKeyPair();
+  }
+  const certificate = keyStore.getCertificate(alias);
+  return Base64.encodeToString(certificate.getPublicKey().getEncoded(), Base64.NO_WRAP);
+}
+
+export function signPayload(alias: string, payload: string): string {
+  const keyStore = KeyStore.getInstance(STORE);
+  keyStore.load(null);
+  const key = keyStore.getKey(alias, null);
+  if (key == null || !(key instanceof PrivateKey)) {
+    throw new Error("Terminal private key does not exist or has an invalid type");
+  }
+  const privateKey = key as PrivateKey;
+  const signature = Signature.getInstance("SHA256withECDSA");
+  signature.initSign(privateKey);
+  signature.update(payload.toByteArray());
+  return Base64.encodeToString(signature.sign(), Base64.NO_WRAP);
+}
+
+export function deleteKeyPair(alias: string): void {
+  const keyStore = KeyStore.getInstance(STORE);
+  keyStore.load(null);
+  if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias);
+}

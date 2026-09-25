@@ -1,0 +1,8 @@
+{
+    "host": "8.137.36.114",
+    "port": 5432,
+    "user": "xxxxxx",
+    "password": "xxxxxx",
+    "$schema": "public",
+    "database": "xxxxxxx"
+}
