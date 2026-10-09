@@ -1,8 +1,8 @@
 {
     "host": "8.137.36.114",
     "port": 5432,
-    "user": "xxxxxx",
-    "password": "xxxxxx",
+    "user": "springgis",
+    "password": "1008611yj012",
     "$schema": "public",
-    "database": "xxxxxxx"
+    "database": "springgis"
 }

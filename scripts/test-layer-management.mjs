@@ -6,7 +6,7 @@ import {
   LayerCollection,
   MvtTileSource,
   UrlTemplateRasterProvider
-} from '../dist/spring-and-autumn-gis.es.js';
+} from 'spring-and-autumn-gis';
 
 assert.equal(DEFAULT_LEVEL_OFFSET, -1.7);
 
@@ -89,16 +89,11 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-const catalog = JSON.parse(
-  await readFile(new URL('../env.config.json', import.meta.url), 'utf8')
-);
-assert.equal(catalog.version, 1);
-assert.equal(catalog.defaults.levelOffset, DEFAULT_LEVEL_OFFSET);
-assert.ok(catalog.sources.length >= 10);
-assert.ok(catalog.layers.some((layer) => layer.id === catalog.defaultBaseLayerId));
-const sourceIds = new Set(catalog.sources.map((source) => source.id));
-for (const layer of catalog.layers) {
-  assert.ok(sourceIds.has(layer.sourceId), `Missing source for layer ${layer.id}`);
-}
+// The consumer owns its configuration; never read an engine catalog outside it.
+const template = JSON.parse(await readFile(new URL('../token.example.json', import.meta.url), 'utf8'));
+assert.ok(template.tianditu.token.startsWith('YOUR_'));
+assert.ok(template.maptiler.key.startsWith('YOUR_'));
+assert.ok(Array.isArray(template.demo.basemaps));
+assert.ok(!Object.hasOwn(template.tianditu, 'serverToken'));
 
 console.log('Layer management checks passed.');

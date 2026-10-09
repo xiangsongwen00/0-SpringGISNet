@@ -1,0 +1,11 @@
+{
+  "tianditu": { "token": "YOUR_PUBLIC_TIANDITU_KEY" },
+  "maptiler": { "key": "YOUR_PUBLIC_MAPTILER_KEY" },
+  "geovis": { "terrainToken": "" },
+  "osm": { "rasterUrl": "", "styleUrl": "", "attribution": "© OpenStreetMap contributors" },
+  "demo": {
+    "defaultBaseMap": "",
+    "basemaps": [],
+    "terrain": { "tileJsonUrl": "", "urlTemplates": [], "encoding": "mapbox", "scheme": "xyz", "maxLevel": 14, "attribution": "用户提供 DEM" }
+  }
+}

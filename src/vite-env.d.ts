@@ -12,22 +12,3 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
-
-declare module 'spring-autumn-gis/env.config.json' {
-  const layerCatalog: {
-    defaultBaseLayerId?: string;
-    defaults?: { levelOffset?: number };
-    sources: unknown[];
-    layers: Array<{ id: string; sourceId?: string; role?: string; levelOffset?: number }>;
-  };
-
-  export default layerCatalog;
-}
-
-declare module '../../token.json' {
-  const tokenConfig: {
-    tianditu?: { token?: string };
-  };
-
-  export default tokenConfig;
-}

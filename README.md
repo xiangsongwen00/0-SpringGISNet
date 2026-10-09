@@ -1,84 +1,51 @@
-# 春秋GIS
+# 春秋GIS · SpringGISNet
 
-春秋GIS 的历史地理、GIS 技术整理与轻量 3D GIS 引擎演示页面，当前内容以舆图笔记方向为主。页面默认使用天地图，适合国内网络环境；演示中也可以临时切换其他底图，并开关 Terrain-RGB 地形。
+本项目保留现有Vue站点、登录/账户与后端接口，独立消费SpringAndAutumnGIS的**dist安装包**。不链接引擎源码，不从引擎项目启动临时消费者。
 
-## 快速运行
+## 日常启动（Windows CMD）
 
-```bash
-npm install
+```bat
+cd /d E:\0-SpringGISNet
 npm run dev
 ```
 
-PC Web 的运行端口和后端 API 连接只在 `config/pc.env.json` 中配置。PC 不读取 `0-pythonServer/env.ini` 或 `0-auth-Apk/config/apk.env.json`。浏览器始终请求同源 `/api/v1`；开发代理和生产反向代理的上游均为 `http://8.137.36.114:8080`。
+开发端口沿用config/pc.env.json（当前5173）：
 
-生产构建与 Vue 类型检查：
+- /：网站，“引擎”区域嵌入SDK交互，可切换TS/JS。
+- /sdk.html：TypeScript交互页。
+- /sdk-js.html：JavaScript ES6交互页。
 
-```bash
-npx vue-tsc -p tsconfig.json --noEmit
+普通地图须提供用户自己的根目录token.json（参考token.example.json），缺少底图/DEM会显示配置指引，不自动用OSM或合成数据兜底。不再import凭据到bundle，开发/preview从本项目同源接口读取经过白名单过滤的浏览器配置。
+
+## 构建成果直接运行
+
+```bat
 npm run build
+npm run preview
 ```
 
-## 天地图令牌放置位置
+preview默认4173，只服务这个应用dist；不会重打包引擎、重新安装依赖或创建临时目录。静态部署整个dist。静态部署自己的配置时显式npm run config:deploy；不要共享维护者Key。
 
-项目根目录的 `token.json` 已经是自动读取位置，也就是与 `package.json` 同级：
+## 更新SDK（仅引擎版本变化时）
 
-```text
-0-SpringGISNet/
-├─ token.json
-├─ package.json
-└─ src/
+先在引擎项目npm run build，然后在本项目：
+
+```bat
+npm run sdk:update
 ```
 
-文件使用以下结构，令牌放在 `tianditu.token` 字段：
+更新只包装当前引擎dist并安装vendor/spring-and-autumn-gis-0.1.0.tgz，不执行引擎构建或启动。vendor包随本项目交付。之后正常dev/build/preview不需要引擎目录存在，也不读取env.config.json。
 
-```json
-{
-  "tianditu": {
-    "token": "你的天地图 Token"
-  }
-}
+## 检查
+
+```bat
+npm run typecheck:sdk
+npm run test:sdk
+npm run test:sdk:browser
 ```
 
-也可以用环境变量覆盖 `token.json`：
+检查真实安装包、TS/JS交互、Worker与凭据隔离。自动浏览器检查直接使用本项目dist；合成瓦片仅供自动测试，不请求公共地图服务。全站Vue类型检查有账户组件原有错误，未在这次SDK接入中改动账户逻辑。
 
-```dotenv
-VITE_TIANDITU_TOKEN=你的天地图 Token
-```
+完整资源申请、接口范围、CMD步骤、发布安全及历史token.json跟踪注意事项见[SDK接入说明](./SDK接入说明.md)。
 
-环境变量优先级高于 `token.json`。浏览器端地图令牌属于公开客户端凭据，请在天地图控制台限制域名和调用额度，不要把服务器私密密钥放进前端。
-
-没有天地图令牌时，演示会自动回退到 OpenStreetMap，不会把 Google 作为默认底图。
-
-## 引擎演示
-
-进入页面的“引擎”区域后可以使用控件：
-
-- **底图**：默认是天地图矢量；可切换天地图影像、OpenStreetMap 和 Google 卫星。
-- **地形**：使用 MapTiler Terrain-RGB 时默认开启，可以实时关闭或重新开启。
-
-地形需要在项目根目录的 `.env.local` 中配置：
-
-```dotenv
-VITE_ENABLE_TERRAIN=true
-VITE_MAPTILER_KEY=你的公开 MapTiler Key
-```
-
-关闭地形但保留地形数据配置：
-
-```dotenv
-VITE_ENABLE_TERRAIN=false
-```
-
-当前引擎包含 WGS84 三维经纬网、LOD 调度、XYZ/WMTS 栅格瓦片、Terrain-RGB 高程解码、祖先瓦片回退和基础相机交互。演示控件调用引擎提供的 `setImageryProvider()` 与 `setTerrainEnabled()`，切换时不会重建整个地球实例。
-
-## 目录说明
-
-- `src/App.vue`：站点页面结构、文章、技术和笔记内容。
-- `src/components/GlobeDemo.vue`：三维地球演示、底图切换和地形开关。
-- `src/config/site.config.json`：页面模块开关。
-- `token.json`：本地开发使用的公开客户端令牌配置。
-- `public/layer-catalog.schema.json`：图层目录结构约束。
-
-## 注意事项
-
-Google 地图服务在国内网络环境下不稳定，因此只作为可选切换项。天地图服务需要有效 Token，使用时应遵守对应服务条款和署名要求。
+PC API设置仍在config/pc.env.json，保留现有/api代理和后端配置。本次不修改0-pythonServer的数据、认证或你的未提交改动。

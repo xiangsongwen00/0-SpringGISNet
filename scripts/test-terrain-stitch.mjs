@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { stitchTerrainNeighborhood } from '../dist/spring-and-autumn-gis.es.js';
+import { stitchTerrainNeighborhood } from 'spring-and-autumn-gis';
 
 function terrainTile(id, size, value) {
   const heights = new Float32Array(size * size).fill(value);

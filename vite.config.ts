@@ -11,21 +11,25 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath } from 'node:url';
+import { resourceConfigPlugin } from './scripts/public-resource-config.mjs';
 import pcEnvironment from './config/pc.env.json';
 
 export default defineConfig({
-  plugins: [vue()],
-  resolve: {
-    alias: {
-      'spring-autumn-gis/env.config.json': fileURLToPath(
-        new URL('../../SpringAndAutumnGIS/SpringAndAutumnGIS/env.config.json', import.meta.url)
-      )
+  plugins: [vue(), resourceConfigPlugin(fileURLToPath(new URL('./token.json', import.meta.url)))],
+  build: {
+    rollupOptions: {
+      input: {
+        site: fileURLToPath(new URL('./index.html', import.meta.url)),
+        sdk: fileURLToPath(new URL('./sdk.html', import.meta.url)),
+        sdkJs: fileURLToPath(new URL('./sdk-js.html', import.meta.url))
+      }
     }
   },
   server: {
     host: pcEnvironment.devServer.host,
     port: pcEnvironment.devServer.port,
     strictPort: pcEnvironment.devServer.strictPort,
+    fs: { deny: ['**/.git/**', '**/.env', '**/.env.*', '**/*.{crt,pem}', '**/token.json'] },
     proxy: {
       '/api': {
         target: pcEnvironment.api.developmentProxyTarget,

@@ -1,28 +1,21 @@
 {
-  "name": "spring-and-autumn-gis",
+  "name": "spring-gis-net",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "type": "module",
-  "description": "Lightweight 3D GIS engine (library + demo).",
-  "main": "./dist/spring-and-autumn-gis.umd.js",
-  "module": "./dist/spring-and-autumn-gis.es.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/spring-and-autumn-gis.es.js",
-      "require": "./dist/spring-and-autumn-gis.umd.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "sideEffects": false,
+  "description": "SpringGISNet website and independent consumer of the packaged GIS SDK.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "npm run sdk:sync-js && npm run typecheck:sdk && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "vue-tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sdk.json --noEmit",
+    "typecheck:sdk": "tsc -p tsconfig.sdk.json --noEmit",
+    "sdk:update": "node scripts/update-sdk.mjs",
+    "sdk:sync-js": "node scripts/sync-sdk-js.mjs",
+    "sdk:check-js": "node scripts/sync-sdk-js.mjs --check",
+    "config:deploy": "node scripts/deploy-resource-config.mjs",
+    "test:sdk": "node scripts/test-sdk-consumer.mjs",
+    "test:sdk:browser": "node scripts/test-sdk-browser.mjs",
     "test:terrain": "npm run build && node scripts/test-terrain-stitch.mjs",
     "test:layers": "npm run build && node scripts/test-layer-management.mjs"
   },
@@ -30,7 +23,6 @@
     "@types/node": "^26.6.2",
     "@types/three": "^0.182.0",
     "@vitejs/plugin-vue": "^5.0.0",
-    "three": "^0.182.0",
     "typescript": "^5.4.5",
     "vite": "^5.1.4",
     "vue-tsc": "^2.0.0"
@@ -38,7 +30,8 @@
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
     "pbf": "^5.1.2",
-    "spring-autumn-gis": "file:../../SpringAndAutumnGIS/SpringAndAutumnGIS",
+    "spring-and-autumn-gis": "file:vendor/spring-and-autumn-gis-0.1.0.tgz",
+    "three": "^0.182.0",
     "vue": "^3.5.13"
   }
 }
