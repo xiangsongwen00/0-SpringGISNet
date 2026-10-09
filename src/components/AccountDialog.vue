@@ -44,7 +44,7 @@
       </section>
 
       <section class="account-section">
-        <div class="account-section-head"><div><h3>已绑定终端</h3><p>迁移码会在新终端绑定成功后自动撤销旧终端。</p></div><button class="ghost-btn small-action" type="button" :disabled="busy" @click="loadTerminals">刷新</button></div>
+        <div class="account-section-head"><div><h3>已绑定终端</h3><p>迁移码会在新终端绑定成功后自动撤销旧终端。</p></div><button class="ghost-btn small-action" type="button" :disabled="busy" @click="loadTerminals()">刷新</button></div>
         <p v-if="error" class="auth-error" role="alert">{{ error }}</p>
         <p v-if="loading" class="terminal-empty">正在读取…</p>
         <p v-else-if="terminals.length === 0" class="terminal-empty">尚未绑定认证终端。</p>
@@ -142,7 +142,7 @@ async function generateCode(purpose: 'terminal_bind' | 'terminal_migrate', termi
   }
   clearCountdown(); busy.value = true; error.value = ''; activeTerminal.value = terminal ?? null;
   try {
-    const answers = requiresAnswers ? myQuestions.value.map((item, index) => ({ question_id: item.id, answer: securityAnswers.value[index] })) : undefined;
+    const answers = requiresAnswers ? myQuestions.value.map((item, index) => ({ question_id: item.id, answer: securityAnswers.value[index] ?? '' })) : undefined;
     const result = await createTerminalAuthorizationCode(purpose, currentPassword.value, answers, terminal?.terminal_uuid);
     activeCode.value = result; codeExpiresAt = new Date(result.expires_at).getTime();
     remainingSeconds.value = Math.max(0, Math.ceil((codeExpiresAt - Date.now()) / 1000));
@@ -170,7 +170,7 @@ async function revokeWithSecurity(terminal: TerminalInfo) {
   const success = await performRevoke(terminal, {
     method: 'password_security',
     current_password: currentPassword.value,
-    security_answers: myQuestions.value.map((item, index) => ({ question_id: item.id, answer: securityAnswers.value[index] }))
+    security_answers: myQuestions.value.map((item, index) => ({ question_id: item.id, answer: securityAnswers.value[index] ?? '' }))
   });
   if (success) { currentPassword.value = ''; securityAnswers.value = ['', '']; }
 }

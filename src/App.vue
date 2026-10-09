@@ -180,7 +180,7 @@
       </div>
       <div class="copyright">© 2026 SpringAutumn GIS · 备案号：{{ config.site.contact.record }}</div>
     </footer>
-    <AuthDialog v-if="authOpen" :device-type="deviceType" @close="authOpen = false" />
+    <AuthDialog v-if="authOpen" :device-type="deviceType" :initial-mode="authInitialMode" @close="authOpen = false" />
     <AccountDialog v-if="accountOpen && user" :user="user" @close="accountOpen = false" />
   </div>
 </template>
@@ -197,7 +197,9 @@ import siteConfig from './config/site.config.json';
 const config = siteConfig;
 
 const githubUrl = 'https://github.com/xiangsongwen00/SpringAndAutumnGIS.git';
-const authOpen = ref(false);
+const quickAuthPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('auth') === 'quick';
+const authOpen = ref(quickAuthPreview);
+const authInitialMode = ref<'login' | 'quick'>(quickAuthPreview ? 'quick' : 'login');
 const accountOpen = ref(false);
 const { deviceType } = useDeviceType();
 const { user, ready: authReady, busy: authBusy, restore, signOut } = useAuth();

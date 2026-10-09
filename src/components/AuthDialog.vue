@@ -88,10 +88,12 @@ import type { DeviceType } from '../types/auth';
 import LegalDialog from './LegalDialog.vue';
 import { SECURITY_QUESTIONS } from '../config/securityQuestions';
 
-const props = defineProps<{ deviceType: DeviceType }>();
+const props = withDefaults(defineProps<{ deviceType: DeviceType; initialMode?: 'login' | 'quick' }>(), {
+  initialMode: 'login'
+});
 const emit = defineEmits<{ close: [] }>();
 const { busy, signIn, signUp, acceptTokens } = useAuth();
-const mode = ref<'login' | 'register' | 'quick'>('login');
+const mode = ref<'login' | 'register' | 'quick'>(props.initialMode);
 const username = ref('');
 const password = ref('');
 const confirmPassword = ref('');

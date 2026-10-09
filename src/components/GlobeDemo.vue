@@ -7,7 +7,7 @@
       <button type="button" @click="toggleMinimized">{{ minimized ? '展开' : '最小化' }}</button>
       <button type="button" @click="toggleFullscreen">全屏</button>
     </div>
-    <iframe ref="frame" v-show="!minimized" :src="frameUrl" title="SpringGISNet SDK dist交互验证" @load="syncRunning"></iframe>
+    <iframe ref="frame" v-show="!minimized" :src="frameUrl" title="SpringGISNet SDK dist交互验证" scrolling="no" @load="syncRunning"></iframe>
   </div>
 </template>
 
@@ -34,12 +34,13 @@ onBeforeUnmount(() => send('springgis:destroy'));
 </script>
 
 <style scoped>
-.sdk-frame{border-radius:18px;overflow:hidden;background:#09151e;border:1px solid #2e535d}
+.sdk-frame{display:grid;grid-template-rows:auto minmax(0,1fr);height:clamp(620px,78dvh,900px);border-radius:18px;overflow:hidden;background:#09151e;border:1px solid #2e535d}
 .sdk-toolbar{padding:12px 16px;display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:#102b35;color:#dff7ff;font-size:13px}
 .sdk-toolbar a{color:#82d8ed;margin-right:auto}
 .sdk-toolbar button,.sdk-toolbar select{background:#163c48;color:#dff7ff;border:1px solid #416370;border-radius:6px;padding:6px 10px;cursor:pointer}
-iframe{display:block;width:100%;height:800px;border:0;background:#09151e}
+iframe{display:block;width:100%;height:100%;min-height:0;border:0;background:#09151e;overflow:hidden}
+.sdk-frame.minimized{height:auto}
 .sdk-frame:fullscreen{width:100vw;height:100vh;border-radius:0}
-.sdk-frame:fullscreen iframe{height:calc(100vh - 60px)}
-@media(max-width:640px){iframe{height:820px}.sdk-toolbar a{margin-right:0}}
+.sdk-frame:fullscreen iframe{height:100%}
+@media(max-width:640px){.sdk-frame{height:72dvh;min-height:520px}.sdk-toolbar a{margin-right:0}}
 </style>

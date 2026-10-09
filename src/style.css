@@ -645,6 +645,7 @@ h1 span {
   border-color: rgba(91, 192, 235, 0.38);
   background: #f8fbfc;
 }
+.quick-auth-dialog, .quick-login-panel, .quick-login-form, .quick-field, .quick-input-shell { min-width: 0; }
 .quick-auth-dialog .auth-close {
   z-index: 2;
   top: 16px;
@@ -692,7 +693,7 @@ h1 span {
 }
 .quick-device-icon svg { width: 43px; fill: none; stroke: #0e7c93; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .quick-device-icon .quick-icon-check { stroke: #3b9f72; stroke-width: 2.8; }
-.quick-hero > div:last-child { position: relative; z-index: 1; }
+.quick-hero > div:last-child { position: relative; z-index: 1; min-width: 0; }
 .quick-badge { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 8px; color: #36727e; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .quick-badge i { width: 7px; height: 7px; border-radius: 50%; background: #42a979; box-shadow: 0 0 0 4px rgba(66, 169, 121, 0.12); }
 .quick-hero h2 { margin: 0; color: #123f49; font-size: 1.75rem; letter-spacing: -0.02em; }
@@ -704,6 +705,7 @@ h1 span {
 .quick-input-shell svg { position: absolute; top: 50%; left: 15px; width: 20px; transform: translateY(-50%); fill: none; stroke: #71949b; stroke-width: 1.8; stroke-linecap: round; }
 .quick-input-shell input,
 .quick-code-input {
+  min-width: 0;
   width: 100%;
   height: 52px;
   border: 1px solid rgba(14, 124, 147, 0.2);
@@ -731,7 +733,8 @@ h1 span {
 .quick-validity { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: -3px; color: #66868d; font-size: 0.78rem; }
 .quick-pulse { position: relative; width: 8px; height: 8px; border-radius: 50%; background: #42a979; }
 .quick-pulse::after { content: ''; position: absolute; inset: -4px; border: 1px solid rgba(66, 169, 121, 0.32); border-radius: 50%; }
-.quick-submit { display: flex; min-height: 52px; align-items: center; justify-content: center; gap: 12px; margin-top: 1px; background: linear-gradient(135deg, #1595a7, #0d7188); box-shadow: 0 11px 24px rgba(14, 124, 147, 0.2); }
+.quick-submit { display: flex; min-height: 52px; align-items: center; justify-content: center; gap: 12px; margin-top: 1px; border-radius: 14px; background: linear-gradient(135deg, #128da0, #0a687d); box-shadow: 0 11px 24px rgba(14, 124, 147, 0.2); font-weight: 800; letter-spacing: 0.02em; }
+.quick-submit:disabled { opacity: 1; background: #d6e9ec; color: #6f9299; box-shadow: none; }
 .quick-submit span:last-child { font-size: 1.25rem; transition: transform 0.2s ease; }
 .quick-submit:not(:disabled):hover span:last-child { transform: translateX(4px); }
 .quick-guide { display: grid; grid-template-columns: 1fr 36px 1fr; gap: 8px; align-items: center; margin: 0 38px; padding: 16px 18px; border: 1px solid rgba(14, 124, 147, 0.1); border-radius: 14px; background: rgba(232, 247, 250, 0.62); }
