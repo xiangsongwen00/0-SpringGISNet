@@ -25,6 +25,7 @@ let entitySerial = 0;
 let entitySubscription: (() => void) | undefined;
 let drawSubscription:(()=>void)|undefined;
 let captureFrame: (() => void) | undefined;
+let playbackTimer: number | undefined;
 const log = (message: string) => {
   const target = element('log'); target.textContent = `${new Date().toLocaleTimeString()} ${message}\n${target.textContent ?? ''}`.slice(0, 6000);
 };
@@ -316,12 +317,36 @@ bind('destroy', () => { creating?.abort(); generation++; creating = undefined; v
 bind('recreate', () => create());
 bind('cancel-create', () => create(true));
 bind('apply-config', () => { configured = true; return create(); });
-window.addEventListener('pagehide', () => { creating?.abort(); viewer?.destroy(); });
+window.addEventListener('pagehide', () => { if(playbackTimer!==undefined)clearInterval(playbackTimer); creating?.abort(); viewer?.destroy(); });
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== window.parent) return;
   if (event.data?.type === 'springgis:stop') element('stop').click();
   if (event.data?.type === 'springgis:start') element('start').click();
   if (event.data?.type === 'springgis:destroy') element('destroy').click();
+  if (event.data?.type === 'springgis:location' && event.data.point && viewer && !viewer.isDestroyed) {
+    const point=event.data.point as {longitude:number;latitude:number;altitude?:number|null;recorded_at?:string};
+    const definition:EntityDefinition={id:'springgis-current-location',type:'point',name:'当前实时位置',position:[point.longitude,point.latitude,point.altitude??0],heightReference:'clamp-to-ground',groundOffset:.4,
+      symbol:{color:'#ff7a45',outlineColor:'#fff4df',outlineWidth:3,size:22,shape:'circle',occlusion:'overlay'},label:{text:'当前位置',fontSize:14,color:'#fff4df',haloColor:'#4c2414',occlusion:'overlay'}};
+    if(viewer.entities.has(definition.id))viewer.entities.update(definition.id,definition);else viewer.entities.add(definition);
+  }
+  if (event.data?.type === 'springgis:shared-locations' && Array.isArray(event.data.locations) && viewer && !viewer.isDestroyed) {
+    for(const item of event.data.locations as Array<{shareId:string;longitude:number;latitude:number;altitude?:number|null;owner_username?:string|null}>){
+      const id=`springgis-shared-${item.shareId}`,definition:EntityDefinition={id,type:'point',name:item.owner_username??'共享位置',position:[item.longitude,item.latitude,item.altitude??0],heightReference:'clamp-to-ground',groundOffset:.45,
+        symbol:{color:'#64d8ff',outlineColor:'#071d29',outlineWidth:3,size:19,shape:'diamond',occlusion:'overlay'},label:{text:item.owner_username??'共享位置',fontSize:13,color:'#dff8ff',haloColor:'#071d29',occlusion:'overlay'}};
+      if(viewer.entities.has(id))viewer.entities.update(id,definition);else viewer.entities.add(definition);
+    }
+  }
+  if (event.data?.type === 'springgis:track' && Array.isArray(event.data.points) && viewer && !viewer.isDestroyed) {
+    const points=(event.data.points as Array<{longitude:number;latitude:number;altitude?:number}>).slice(0,1000);
+    if(points.length<1)return;
+    const positions=points.map(point=>[point.longitude,point.latitude,point.altitude??0] as EntityPosition);
+    const line:EntityDefinition={id:'springgis-history-track',type:'polyline',name:'历史轨迹',positions:positions.length===1?[positions[0]!,positions[0]!]:positions,heightReference:'clamp-to-ground',groundOffset:.3,symbol:{color:'#ff8a4c',width:6,opacity:.92,occlusion:'overlay'}};
+    if(viewer.entities.has(line.id))viewer.entities.update(line.id,line);else viewer.entities.add(line);
+    if(playbackTimer!==undefined)clearInterval(playbackTimer);let index=0;
+    const step=()=>{const position=positions[index++]!;const marker:EntityDefinition={id:'springgis-track-playback',type:'point',name:'轨迹回放',position,heightReference:'clamp-to-ground',groundOffset:.6,symbol:{color:'#ffd166',outlineColor:'#6b351a',outlineWidth:3,size:20,shape:'diamond',occlusion:'overlay'}};
+      if(viewer?.entities.has(marker.id))viewer.entities.update(marker.id,marker);else viewer?.entities.add(marker);if(index>=positions.length&&playbackTimer!==undefined){clearInterval(playbackTimer);playbackTimer=undefined;}};
+    step();playbackTimer=window.setInterval(step,Math.max(120,Math.floor(10000/positions.length)));
+  }
 });
 if (new URLSearchParams(location.search).has('embedded')) document.body.classList.add('embedded');
 

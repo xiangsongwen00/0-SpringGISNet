@@ -8,9 +8,9 @@
  * 
  * Copyright (c) 2026 by bimcc, All Rights Reserved. 
 -->
-# SpringAutumn Auth
+# 春秋GIS 人生轨迹
 
-独立授权 APK，目录固定为 `0-auth-Apk`。技术栈为 Vue 3 + TypeScript + uni-app；Android Keystore 通过项目内的 UTS 模块调用，不维护单独的 Android Studio/Gradle 主工程。
+位置轨迹与独立授权 APK，目录固定为 `0-auth-Apk`。技术栈为 Vue 3 + TypeScript + uni-app；Android Keystore 通过项目内的 UTS 模块调用，不维护单独的 Android Studio/Gradle 主工程。角色权限是应用中的一个独立模块，不再占据全部首页。
 
 ## 职责
 
@@ -21,8 +21,11 @@
 - 生成独立的终端撤销授权码或 6 位撤销验证码，供 PC 完成有条件撤销；
 - 确认账户恢复；
 - 查看和撤销当前终端。
+- 用户主动开启后，以 WGS84 记录实时位置，默认每 2 秒写入；
+- 支持 1、2、5、10、30、60 秒频率和明确停止；
+- 位置默认仅本人可见，共享授权由 PC 账户管理创建和撤销。
 
-不包含注册、GIS 地图、文章、社区、短信、通讯录、定位、广告或扫码。Android 权限只有 `INTERNET`。
+不包含注册、文章、社区、短信、通讯录、广告或扫码。不采集 IMEI、MAC、手机号、邮箱或真实身份。定位默认关闭，开启时使用定位、前台定位服务和后台定位权限；后台实际采样仍受 Android/荣耀系统省电策略约束。
 
 ## 安装与页面调试
 

@@ -3,14 +3,14 @@
 		{
 			"path": "pages/index/index",
 			"style": {
-				"navigationBarTitleText": "SpringAutumn Auth",
+				"navigationBarTitleText": "春秋GIS 人生轨迹",
 				"navigationStyle": "custom"
 			}
 		}
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "SpringAutumn Auth",
+		"navigationBarTitleText": "春秋GIS 人生轨迹",
 		"navigationBarBackgroundColor": "#F7FBFC",
 		"backgroundColor": "#F7FBFC"
 	}

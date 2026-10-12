@@ -513,3 +513,63 @@ const meResponse = await fetch('/api/v1/users/me', {
 - `POST /api/v1/terminals/{terminal_uuid}/revoke`：不再允许仅凭 PC 登录态撤销。必须三选一：当前密码+两道安全问题；目标终端生成的撤销授权码；目标终端生成的 6 位撤销验证码。
 - 撤销码具有独立用途标识，快速登录验证码、绑定码、迁移码均不能用于撤销。撤销成功后，该终端会话和关联的未使用凭据同时失效。
 
+## 16. 实时位置与历史轨迹 API
+
+位置模块独立于角色权限模块。注册、登录或绑定终端不会自动开启定位；只有用户在 APK 中主动开启后才采集。位置默认仅本人可读，服务端不提供管理员绕过接口。
+
+数据结构：
+
+- `location_settings`：用户定位开关与采样频率，允许 `1/2/5/10/30/60` 秒，默认 2 秒且关闭。
+- `current_locations`：每个用户一条最新位置，用于低延迟读取。
+- `track_segments`：按用户、终端、上海自然日及采样频率分段，每行最多 1000 点；跨日、频率改变、间隔超过五分钟或达到上限时建立新段。
+- `location_shares`：本人向指定用户名发放的实时或历史时间窗授权，可随时撤销，最长三天。
+
+### APK 写入
+
+- `GET /api/v1/locations/settings`：读取本人定位设置。
+- `PUT /api/v1/locations/settings`：更新 `write_interval_seconds` 和 `tracking_enabled`。
+- `POST /api/v1/locations/points`：仅 `auth_apk` 且已绑定、未撤销的终端可调用；单次 1-100 点，坐标使用 WGS84。
+
+写入示例：
+
+```json
+{
+  "points": [{
+    "longitude": 106.551,
+    "latitude": 29.611,
+    "altitude": 326.4,
+    "accuracy": 8.0,
+    "speed": 1.2,
+    "heading": 35.0,
+    "recorded_at": "2026-10-11T12:00:00Z"
+  }]
+}
+```
+
+### 本人查询与回放
+
+- `GET /api/v1/locations/me/current`：读取本人最新终端位置。
+- `GET /api/v1/locations/me/history?from=...&to=...`：读取最近三天内、最长三天的轨迹分段。PC 引擎将返回点转换为贴地折线并进行轨迹点回放。
+
+### 用户间共享
+
+- `POST /api/v1/locations/shares`：向指定用户名共享 `realtime` 或 `history`；历史共享必须提供开始、结束时间。
+- `GET /api/v1/locations/shares`：查看本人发出的授权。
+- `DELETE /api/v1/locations/shares/{share_id}`：本人撤销授权。
+- `GET /api/v1/locations/shared/current`：读取其他用户明确共享给当前用户的实时位置。
+- `GET /api/v1/locations/shared/{share_id}/history`：读取其他用户明确共享的历史时间窗。
+
+### IP 近似位置与地名
+
+- `GET /api/v1/locations/ip`：未登录或暂无终端位置时的 IP 城市级近似定位。
+- `GET /api/v1/locations/place?longitude=...&latitude=...`：WGS84 坐标转 GCJ-02 后调用高德逆地理编码，返回地名但仍以原 WGS84 坐标展示。
+- 在 `0-pythonServer/env.ini` 的 `[geocoding] amap_web_service_key` 配置高德 Web 服务 Key；未配置不会影响轨迹写入和回放，只禁用 IP 定位与地名查询。
+
+部署新版本后执行：
+
+```powershell
+python 0-testpy/apply_migration.py
+```
+
+对应迁移为 `006_location_tracking.sql`。
+

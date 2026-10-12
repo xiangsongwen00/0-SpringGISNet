@@ -26,6 +26,7 @@ class Settings(BaseModel):
     access_token_minutes: int = 15
     refresh_token_days: int = 30
     cors_origins: tuple[str, ...] = ()
+    amap_web_service_key: str = ""
 
 
 def _read_ini() -> ConfigParser:
@@ -145,5 +146,9 @@ def get_settings() -> Settings:
             )
         ),
         cors_origins=_parse_cors_origins(origins),
+        amap_web_service_key=os.getenv(
+            "SPRINGGIS_AMAP_WEB_SERVICE_KEY",
+            ini.get("geocoding", "amap_web_service_key", fallback=""),
+        ).strip(),
     )
 

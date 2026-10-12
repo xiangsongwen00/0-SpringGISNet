@@ -2,17 +2,17 @@
   <view class="page">
     <view class="safe-top" />
     <view class="brand-row">
-      <view class="brand-mark">春</view>
+      <image class="brand-icon" src="/static/app-icon.png" mode="aspectFill" />
       <view>
-        <text class="brand-title">SpringAutumn Auth</text>
-        <text class="brand-subtitle">春秋GIS 独立授权终端</text>
+        <text class="brand-title">春秋GIS 人生轨迹</text>
+        <text class="brand-subtitle">位置轨迹 · 共享 · 角色权限</text>
       </view>
     </view>
 
     <view v-if="!session" class="panel login-panel">
-      <text class="eyebrow">MINIMAL AUTH CLIENT</text>
-      <text class="heading">登录并绑定认证终端</text>
-      <text class="description">仅用于设备绑定、六码登录确认和账户恢复确认。不读取短信、通讯录、位置或硬件序列号。</text>
+      <text class="eyebrow">SPRINGAUTUMN TRACK</text>
+      <text class="heading">登录人生轨迹</text>
+      <text class="description">登录后可自行开启位置轨迹。不开启时不读取位置；不读取短信、通讯录、IMEI、MAC 或硬件序列号。</text>
       <view class="field"><text>用户名</text><input v-model.trim="username" maxlength="32" placeholder="请输入用户名" /></view>
       <view class="field"><text>密码</text><input v-model="password" password maxlength="128" placeholder="请输入密码" /></view>
       <text v-if="error" class="error">{{ error }}</text>
@@ -25,6 +25,30 @@
         <view><text class="label">当前账户</text><text class="account-name">{{ session.user.username }}</text></view>
         <view class="status-pill">{{ terminalBound ? '终端已绑定' : '等待绑定' }}</view>
       </view>
+      <view class="module-tabs">
+        <view :class="['module-tab', { active: activeModule === 'track' }]" @click="activeModule = 'track'">实时轨迹</view>
+        <view :class="['module-tab', { active: activeModule === 'permission' }]" @click="activeModule = 'permission'">角色与权限</view>
+      </view>
+      <view v-if="activeModule === 'track'" class="panel tracking-panel">
+        <text class="section-title">实时位置记录</text>
+        <text class="description">位置只属于当前账户。只有你主动向指定用户共享后，对方才能查看实时位置或最近三天内指定时段的历史轨迹。</text>
+        <view class="frequency-row">
+          <text>写入频率</text>
+          <picker :range="locationIntervals" :value="locationIntervalIndex" @change="changeLocationInterval">
+            <view class="frequency-picker">每 {{ locationInterval }} 秒一次</view>
+          </picker>
+        </view>
+        <view v-if="locationState.lastPoint" class="location-card">
+          <text>{{ locationState.lastPoint.latitude.toFixed(6) }}, {{ locationState.lastPoint.longitude.toFixed(6) }}</text>
+          <text>精度 {{ locationState.lastPoint.accuracy?.toFixed(0) || '—' }} 米 · {{ formatLocationTime(locationState.lastUploadedAt) }}</text>
+        </view>
+        <text v-else class="muted">尚未上传位置</text>
+        <text v-if="locationState.error" class="error">{{ locationState.error }}</text>
+        <button v-if="!locationState.running" class="primary" :disabled="!terminalBound || busy" @click="startLocationTracking">开启轨迹记录</button>
+        <button v-else class="tracking-stop" :disabled="busy" @click="stopLocationTracking">停止轨迹记录</button>
+        <text class="privacy">Android 首次开启会请求定位权限。1 秒频率耗电最高；默认 2 秒。系统省电策略或后台限制可能降低实际采样频率。</text>
+      </view>
+      <view v-show="activeModule === 'permission'">
       <view class="panel">
         <text class="section-title">认证终端</text>
         <text class="description">私钥由 Android Keystore 生成并保存在本机。初次绑定或迁移时，还必须输入 PC 账户管理页下发的 8-12 位授权码。</text>
@@ -66,6 +90,7 @@
         <button class="secondary" :disabled="!terminalBound || busy" @click="generateRevokeCode('verification_code')">生成 6 位撤销验证码</button>
         <view v-if="revokeVerificationCode" class="authorization-result"><text>{{ revokeVerificationCode }}</text><text>{{ revokeVerificationRemaining }} 秒后失效</text></view>
       </view>
+      </view>
       <button class="logout" @click="signOut">退出当前账户</button>
     </template>
   </view>
@@ -74,8 +99,9 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
-import { confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getMySecurityQuestions, login, startTerminalBinding, startTerminalSession, type AuthSession, type SecurityQuestion } from '../../services/api';
+import { confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, LOCATION_INTERVALS, login, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
 import { ensureTerminalKey, getNativeKeyDiagnostics, isNativeKeyAvailable, signTerminalPayload } from '../../services/keystore';
+import { LocationTracker, type LocationTrackerState } from '../../services/locationTracker';
 
 const username = ref('');
 const password = ref('');
@@ -85,6 +111,12 @@ const busy = ref(false);
 const error = ref('');
 const session = ref<AuthSession | null>(null);
 const terminalBound = ref(false);
+const activeModule = ref<'track' | 'permission'>('track');
+const locationIntervals = [...LOCATION_INTERVALS];
+const locationInterval = ref<LocationInterval>(2);
+const locationIntervalIndex = ref(1);
+const locationState = ref<LocationTrackerState>({ running: false, lastPoint: null, lastUploadedAt: null, error: '' });
+let locationTracker: LocationTracker | null = null;
 const bindingLogs = ref<string[]>([]);
 const quickRemaining = ref(0);
 const quickGenerating = ref(false);
@@ -112,9 +144,61 @@ async function signIn() {
     session.value = authenticated; password.value = '';
     await attachExistingTerminal(authenticated);
     await refreshSecurityQuestions(authenticated);
+    await restoreLocationTracking(authenticated);
   }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '登录失败'; }
   finally { busy.value = false; }
+}
+
+async function restoreLocationTracking(authenticated = session.value) {
+  if (!authenticated) return;
+  try {
+    const setting = await getLocationSetting(authenticated.access_token);
+    locationInterval.value = setting.write_interval_seconds;
+    locationIntervalIndex.value = locationIntervals.indexOf(setting.write_interval_seconds);
+    if (setting.tracking_enabled && terminalBound.value) startTracker(authenticated.access_token);
+  } catch (reason) {
+    locationState.value = { ...locationState.value, error: reason instanceof Error ? reason.message : '无法读取定位设置' };
+  }
+}
+
+function startTracker(accessToken: string) {
+  locationTracker?.stop();
+  locationTracker = new LocationTracker(accessToken, locationInterval.value, (state) => { locationState.value = state; });
+  locationTracker.start();
+}
+
+async function startLocationTracking() {
+  if (!session.value || !terminalBound.value) return;
+  busy.value = true;
+  try {
+    await updateLocationSetting(session.value.access_token, locationInterval.value, true);
+    startTracker(session.value.access_token);
+  } catch (reason) {
+    locationState.value = { ...locationState.value, error: reason instanceof Error ? reason.message : '无法开启轨迹记录' };
+  } finally { busy.value = false; }
+}
+
+async function stopLocationTracking() {
+  locationTracker?.stop(); locationTracker = null;
+  if (!session.value) return;
+  busy.value = true;
+  try { await updateLocationSetting(session.value.access_token, locationInterval.value, false); }
+  catch (reason) { locationState.value = { ...locationState.value, error: reason instanceof Error ? reason.message : '无法保存停止状态' }; }
+  finally { busy.value = false; }
+}
+
+async function changeLocationInterval(event: { detail: { value: string | number } }) {
+  const index = Number(event.detail.value);
+  const next = locationIntervals[index];
+  if (!next) return;
+  locationInterval.value = next; locationIntervalIndex.value = index;
+  locationTracker?.setInterval(next);
+  if (session.value) await updateLocationSetting(session.value.access_token, next, locationState.value.running);
+}
+
+function formatLocationTime(value: string | null): string {
+  return value ? new Date(value).toLocaleTimeString('zh-CN', { hour12: false }) : '未上传';
 }
 
 async function refreshSecurityQuestions(authenticated = session.value) {
@@ -280,17 +364,17 @@ async function syncRemoteState() {
   }
 }
 
-function signOut() { clearQuickTimer(); clearRevokeVerificationTimer(); if (statusTimer !== null) clearInterval(statusTimer); statusTimer = null; session.value = null; terminalBound.value = false; quickCode.value = ''; bindingCode.value = ''; migrationCode.value = ''; migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = []; revokeAuthorizationCode.value = ''; revokeVerificationCode.value = ''; }
+function signOut() { locationTracker?.stop(); locationTracker = null; clearQuickTimer(); clearRevokeVerificationTimer(); if (statusTimer !== null) clearInterval(statusTimer); statusTimer = null; session.value = null; terminalBound.value = false; quickCode.value = ''; bindingCode.value = ''; migrationCode.value = ''; migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = []; revokeAuthorizationCode.value = ''; revokeVerificationCode.value = ''; locationState.value = { running: false, lastPoint: null, lastUploadedAt: null, error: '' }; }
 onShow(() => void syncRemoteState());
 statusTimer = setInterval(() => void syncRemoteState(), 10000);
-onUnmounted(() => { clearQuickTimer(); clearRevokeVerificationTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
+onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerificationTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
 </script>
 
 <style scoped>
 .page { min-height: 100vh; padding: 0 32rpx 64rpx; background: radial-gradient(circle at 16% 6%, rgba(91,192,235,.2), transparent 28%), #f7fbfc; box-sizing: border-box; }
 .safe-top { height: calc(var(--status-bar-height) + 24rpx); }
 .brand-row { display: flex; align-items: center; gap: 20rpx; margin: 16rpx 0 40rpx; }
-.brand-mark { display: flex; width: 82rpx; height: 82rpx; align-items: center; justify-content: center; border-radius: 24rpx; background: linear-gradient(135deg,#5bc0eb,#0e9aa7); color: white; font-size: 38rpx; font-family: serif; box-shadow: 0 14rpx 36rpx rgba(14,124,147,.2); }
+.brand-icon { width: 92rpx; height: 92rpx; flex: 0 0 92rpx; border-radius: 26rpx; box-shadow: 0 14rpx 36rpx rgba(181,103,49,.24); }
 .brand-title,.brand-subtitle,.heading,.description,.label,.account-name,.section-title,.muted,.privacy,.error,.empty-state { display: block; }
 .brand-title { font-size: 34rpx; font-weight: 700; }.brand-subtitle { margin-top: 5rpx; color: #7a949d; font-size: 24rpx; }
 .panel,.account-card { margin-bottom: 28rpx; padding: 32rpx; border: 1rpx solid rgba(14,124,147,.14); border-radius: 28rpx; background: rgba(255,255,255,.92); box-shadow: 0 16rpx 44rpx rgba(14,124,147,.09); }.login-panel { padding-top: 40rpx; }
@@ -308,4 +392,14 @@ onUnmounted(() => { clearQuickTimer(); clearRevokeVerificationTimer(); if (statu
 .diagnostic-notice { display: block; margin-top: 20rpx; color: #91afb6; font-size: 21rpx; line-height: 1.5; }
 .migration-verification { margin-top: 20rpx; }
 .migration-verification > input { width: 100%; height: 88rpx; padding: 0 22rpx; border: 1rpx solid rgba(14,124,147,.24); border-radius: 18rpx; background: white; box-sizing: border-box; }
+.module-tabs { display: flex; gap: 12rpx; margin-bottom: 28rpx; padding: 8rpx; border-radius: 24rpx; background: rgba(255,255,255,.8); }
+.module-tab { flex: 1; padding: 20rpx 12rpx; border-radius: 18rpx; color: #6a7d82; text-align: center; font-size: 27rpx; font-weight: 700; }
+.module-tab.active { background: #10272d; color: white; box-shadow: 0 10rpx 24rpx rgba(16,39,45,.18); }
+.tracking-panel { border-color: rgba(197,113,51,.22); background: linear-gradient(155deg,#fffaf3,#fff); }
+.frequency-row { display: flex; align-items: center; justify-content: space-between; margin-top: 26rpx; font-size: 27rpx; font-weight: 700; }
+.frequency-picker { padding: 16rpx 20rpx; border: 1rpx solid rgba(197,113,51,.28); border-radius: 18rpx; background: white; color: #a25424; }
+.location-card { display: grid; gap: 10rpx; margin-top: 24rpx; padding: 24rpx; border-radius: 20rpx; background: #fff1df; color: #693619; }
+.location-card text:first-child { font-family: monospace; font-size: 29rpx; font-weight: 700; }
+.location-card text:last-child { color: #9b6a4d; font-size: 23rpx; }
+.tracking-stop { margin-top: 28rpx; border: 1rpx solid #b35a36; border-radius: 999rpx; background: white; color: #9e4427; font-size: 29rpx; }
 </style>

@@ -223,3 +223,100 @@ export function setupSecurityQuestions(currentPassword: string, securityAnswers:
   });
 }
 
+export interface LocationPoint {
+  longitude: number;
+  latitude: number;
+  altitude: number | null;
+  accuracy: number | null;
+  speed: number | null;
+  heading: number | null;
+  recorded_at: string;
+  received_at?: string | null;
+  owner_username?: string | null;
+  source: string;
+}
+
+export interface TrackSegment {
+  segment_id: string;
+  frequency_seconds: number;
+  started_at: string;
+  ended_at: string;
+  point_count: number;
+  points: Array<{ longitude: number; latitude: number; altitude?: number; recorded_at: string }>;
+}
+
+export interface TrackHistory {
+  owner_user_uuid: string;
+  owner_username: string;
+  from_time: string;
+  to_time: string;
+  segments: TrackSegment[];
+}
+
+export function getMyCurrentLocation(): Promise<LocationPoint> {
+  return authorizedRequest('/locations/me/current', { method: 'GET' });
+}
+
+export function getMyTrackHistory(from: Date, to: Date): Promise<TrackHistory> {
+  const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+  return authorizedRequest(`/locations/me/history?${query}`, { method: 'GET' });
+}
+
+export interface ApproximateLocation {
+  longitude: number;
+  latitude: number;
+  source: string;
+  approximate: boolean;
+  label: string | null;
+}
+
+export function getApproximateIpLocation(): Promise<ApproximateLocation> {
+  return jsonRequest('/locations/ip', { method: 'GET' });
+}
+
+export interface LocationShare {
+  share_id: string;
+  target_username: string;
+  share_type: 'realtime' | 'history';
+  starts_at: string;
+  ends_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+}
+
+export function createLocationShare(
+  targetUsername: string,
+  shareType: 'realtime' | 'history',
+  startsAt: Date | null,
+  endsAt: Date | null,
+  expiresAt: Date,
+): Promise<LocationShare> {
+  return authorizedRequest('/locations/shares', {
+    method: 'POST',
+    body: JSON.stringify({
+      target_username: targetUsername,
+      share_type: shareType,
+      starts_at: startsAt?.toISOString() ?? null,
+      ends_at: endsAt?.toISOString() ?? null,
+      expires_at: expiresAt.toISOString(),
+    }),
+  });
+}
+
+export function listLocationShares(): Promise<LocationShare[]> {
+  return authorizedRequest('/locations/shares', { method: 'GET' });
+}
+
+export function revokeLocationShare(shareId: string): Promise<{ message: string }> {
+  return authorizedRequest(`/locations/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' });
+}
+
+export interface SharedCurrentLocation {
+  share_id: string;
+  location: LocationPoint | null;
+}
+
+export function getSharedCurrentLocations(): Promise<SharedCurrentLocation[]> {
+  return authorizedRequest('/locations/shared/current', { method: 'GET' });
+}
+

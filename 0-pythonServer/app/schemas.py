@@ -247,4 +247,114 @@ class QuickLoginStartResponse(BaseModel):
     refresh_after_seconds: int = 45
 
 
+ALLOWED_LOCATION_INTERVALS = {1, 2, 5, 10, 30, 60}
+
+
+class LocationPointInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    longitude: float = Field(ge=-180, le=180)
+    latitude: float = Field(ge=-90, le=90)
+    altitude: float | None = Field(default=None, ge=-1000, le=100000)
+    accuracy: float | None = Field(default=None, ge=0, le=100000)
+    speed: float | None = Field(default=None, ge=0, le=2000)
+    heading: float | None = Field(default=None, ge=0, lt=360)
+    recorded_at: datetime
+
+
+class LocationPointsUploadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    points: list[LocationPointInput] = Field(min_length=1, max_length=100)
+
+
+class LocationUploadResponse(BaseModel):
+    accepted: int
+    current_recorded_at: datetime
+
+
+class LocationSettingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    write_interval_seconds: int = 2
+    tracking_enabled: bool = False
+
+    @field_validator("write_interval_seconds")
+    @classmethod
+    def validate_interval(cls, value: int) -> int:
+        if value not in ALLOWED_LOCATION_INTERVALS:
+            raise ValueError("定位写入频率仅支持 1、2、5、10、30、60 秒")
+        return value
+
+
+class LocationSettingResponse(BaseModel):
+    write_interval_seconds: int
+    tracking_enabled: bool
+    allowed_intervals: list[int] = [1, 2, 5, 10, 30, 60]
+
+
+class LocationPointResponse(BaseModel):
+    longitude: float
+    latitude: float
+    altitude: float | None
+    accuracy: float | None
+    speed: float | None
+    heading: float | None
+    recorded_at: datetime
+    received_at: datetime | None = None
+    owner_user_uuid: str | None = None
+    owner_username: str | None = None
+    source: str = "terminal"
+
+
+class TrackSegmentResponse(BaseModel):
+    segment_id: str
+    frequency_seconds: int
+    started_at: datetime
+    ended_at: datetime
+    point_count: int
+    points: list[dict[str, object]]
+
+
+class TrackHistoryResponse(BaseModel):
+    owner_user_uuid: str
+    owner_username: str
+    from_time: datetime
+    to_time: datetime
+    segments: list[TrackSegmentResponse]
+
+
+class LocationShareCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_username: str = Field(min_length=2, max_length=32)
+    share_type: Literal["realtime", "history"]
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    expires_at: datetime
+
+
+class LocationShareResponse(BaseModel):
+    share_id: str
+    target_username: str
+    share_type: str
+    starts_at: datetime
+    ends_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+
+
+class SharedCurrentLocationResponse(BaseModel):
+    share_id: str
+    location: LocationPointResponse | None
+
+
+class ApproximateLocationResponse(BaseModel):
+    longitude: float
+    latitude: float
+    source: str
+    approximate: bool = True
+    label: str | None = None
+
+
 

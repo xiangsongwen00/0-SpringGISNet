@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, JSON, String, Text, Uuid
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -43,6 +43,101 @@ class User(Base):
     security_answers: Mapped[list["SecurityAnswer"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+
+
+class LocationSetting(Base):
+    __tablename__ = "location_settings"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    write_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    tracking_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
+class CurrentLocation(Base):
+    __tablename__ = "current_locations"
+    __table_args__ = (
+        Index("idx_current_locations_recorded", "recorded_at"),
+        Index("idx_current_locations_terminal", "terminal_id"),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    terminal_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("terminals.id", ondelete="CASCADE"), nullable=False
+    )
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    altitude: Mapped[float | None] = mapped_column(Float)
+    accuracy: Mapped[float | None] = mapped_column(Float)
+    speed: Mapped[float | None] = mapped_column(Float)
+    heading: Mapped[float | None] = mapped_column(Float)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class TrackSegment(Base):
+    __tablename__ = "track_segments"
+    __table_args__ = (
+        Index("idx_track_segments_user_time", "user_id", "started_at", "ended_at"),
+        Index("idx_track_segments_user_date", "user_id", "track_date"),
+        Index("idx_track_segments_terminal_time", "terminal_id", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    segment_uuid: Mapped[str] = mapped_column(Uuid(as_uuid=False), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    terminal_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("terminals.id", ondelete="CASCADE"), nullable=False
+    )
+    track_date: Mapped[date] = mapped_column(Date, nullable=False)
+    frequency_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    point_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    points: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
+class LocationShare(Base):
+    __tablename__ = "location_shares"
+    __table_args__ = (
+        Index("idx_location_shares_owner", "owner_user_id", "created_at"),
+        Index("idx_location_shares_grantee", "grantee_user_id", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    share_uuid: Mapped[str] = mapped_column(Uuid(as_uuid=False), unique=True, nullable=False)
+    owner_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    grantee_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    share_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class UserConsent(Base):

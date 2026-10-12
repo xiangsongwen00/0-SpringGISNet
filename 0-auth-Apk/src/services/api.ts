@@ -25,7 +25,7 @@ export interface TerminalInfo {
   bound_at: string;
 }
 
-function request<T>(path: string, method: 'GET' | 'POST', data?: object, token?: string): Promise<T> {
+function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', data?: object, token?: string): Promise<T> {
   return new Promise((resolve, reject) => {
     uni.request({
       url: `${API_BASE}${path}`,
@@ -106,4 +106,48 @@ export function createTerminalRevokeCode(
   codeType: 'authorization_code' | 'verification_code',
 ): Promise<RevokeCode> {
   return request('/terminals/revoke-codes', 'POST', { code_type: codeType }, accessToken);
+}
+
+export const LOCATION_INTERVALS = [1, 2, 5, 10, 30, 60] as const;
+export type LocationInterval = typeof LOCATION_INTERVALS[number];
+export interface LocationPoint {
+  longitude: number;
+  latitude: number;
+  altitude?: number;
+  accuracy?: number;
+  speed?: number;
+  heading?: number;
+  recorded_at: string;
+}
+export interface LocationSetting {
+  write_interval_seconds: LocationInterval;
+  tracking_enabled: boolean;
+  allowed_intervals: LocationInterval[];
+}
+export interface CurrentLocation extends LocationPoint {
+  received_at: string;
+  source: string;
+}
+
+export function getLocationSetting(accessToken: string): Promise<LocationSetting> {
+  return request('/locations/settings', 'GET', undefined, accessToken);
+}
+
+export function updateLocationSetting(
+  accessToken: string,
+  writeIntervalSeconds: LocationInterval,
+  trackingEnabled: boolean,
+): Promise<LocationSetting> {
+  return request('/locations/settings', 'PUT', {
+    write_interval_seconds: writeIntervalSeconds,
+    tracking_enabled: trackingEnabled,
+  }, accessToken);
+}
+
+export function uploadLocationPoints(accessToken: string, points: LocationPoint[]): Promise<{ accepted: number; current_recorded_at: string }> {
+  return request('/locations/points', 'POST', { points }, accessToken);
+}
+
+export function getMyCurrentLocation(accessToken: string): Promise<CurrentLocation> {
+  return request('/locations/me/current', 'GET', undefined, accessToken);
 }

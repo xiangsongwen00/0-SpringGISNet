@@ -63,7 +63,21 @@
           </div>
         </article>
       </section>
-      <p class="management-note">系统不收集 IMEI、MAC、硬件序列号或位置；终端身份由 Android Keystore 公钥证明。
+      <section class="account-section">
+        <div class="account-section-head"><div><h3>位置共享</h3><p>默认仅本人可见。实时或历史轨迹只能共享给指定用户名，最长三天并可随时撤销。</p></div><button class="ghost-btn small-action" type="button" :disabled="busy" @click="loadLocationShares">刷新</button></div>
+        <div class="verification-grid location-share-form">
+          <input v-model.trim="shareTarget" maxlength="32" placeholder="对方用户名" />
+          <select v-model="shareType"><option value="realtime">共享实时位置</option><option value="history">共享最近一小时历史轨迹</option></select>
+          <select v-model.number="shareHours"><option :value="1">有效 1 小时</option><option :value="6">有效 6 小时</option><option :value="24">有效 1 天</option><option :value="72">有效 3 天</option></select>
+          <button class="primary-btn small-action" type="button" :disabled="busy || !shareTarget" @click="createShare">创建共享</button>
+        </div>
+        <p v-if="locationShares.length === 0" class="terminal-empty">尚未创建位置共享。</p>
+        <article v-for="share in locationShares" :key="share.share_id" class="terminal-row">
+          <div><strong>{{ share.target_username }}</strong><span>{{ share.share_type === 'realtime' ? '实时位置' : '最近一小时历史' }} · 截止 {{ formatDate(share.expires_at) }}</span></div>
+          <div class="terminal-actions"><button v-if="!share.revoked_at" class="danger-action" type="button" :disabled="busy" @click="revokeShare(share.share_id)">撤销共享</button><span v-else>已撤销</span></div>
+        </article>
+      </section>
+      <p class="management-note">系统不收集 IMEI、MAC 或硬件序列号；终端身份由 Android Keystore 公钥证明。位置仅在用户主动开启轨迹后采集，且默认仅本人可见。
       </p>
     </section>
   </div>
@@ -72,7 +86,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { AuthUser, SecurityQuestion } from '../types/auth';
-import { createTerminalAuthorizationCode, getMySecurityQuestions, listTerminals, revokeTerminal, setupSecurityQuestions, type AuthorizationCode, type TerminalInfo } from '../services/api';
+import { createLocationShare, createTerminalAuthorizationCode, getMySecurityQuestions, listLocationShares, listTerminals, revokeLocationShare, revokeTerminal, setupSecurityQuestions, type AuthorizationCode, type LocationShare, type TerminalInfo } from '../services/api';
 import { SECURITY_QUESTIONS } from '../config/securityQuestions';
 
 defineProps<{ user: AuthUser }>();
@@ -95,6 +109,10 @@ const setupAnswer1 = ref('');
 const setupAnswer2 = ref('');
 const setupPassword = ref('');
 const revokeCodes = ref<Record<string, string>>({});
+const locationShares = ref<LocationShare[]>([]);
+const shareTarget = ref('');
+const shareType = ref<'realtime' | 'history'>('realtime');
+const shareHours = ref(1);
 let countdownTimer: number | undefined;
 let codeExpiresAt = 0;
 let terminalPollTimer: number | undefined;
@@ -116,6 +134,30 @@ async function loadSecurityQuestions() {
   try { myQuestions.value = await getMySecurityQuestions(); }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '无法读取安全问题'; }
   finally { questionsLoading.value = false; }
+}
+
+async function loadLocationShares() {
+  try { locationShares.value = await listLocationShares(); }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '无法读取位置共享'; }
+}
+
+async function createShare() {
+  if (!shareTarget.value) return;
+  busy.value = true; error.value = '';
+  try {
+    const now = new Date(), expires = new Date(now.getTime() + shareHours.value * 3600000);
+    const start = shareType.value === 'history' ? new Date(now.getTime() - 3600000) : null;
+    await createLocationShare(shareTarget.value, shareType.value, start, shareType.value === 'history' ? now : null, expires);
+    shareTarget.value = ''; await loadLocationShares();
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : '无法创建位置共享'; }
+  finally { busy.value = false; }
+}
+
+async function revokeShare(shareId: string) {
+  busy.value = true; error.value = '';
+  try { await revokeLocationShare(shareId); await loadLocationShares(); }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '无法撤销位置共享'; }
+  finally { busy.value = false; }
 }
 
 async function setupLegacySecurity() {
@@ -191,7 +233,7 @@ async function revokeWithTerminalCode(terminal: TerminalInfo) {
 function statusLabel(status: number) { return status === 1 ? '有效' : status === 4 ? '已迁移' : '已撤销'; }
 function formatDate(value: string) { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
 onMounted(() => {
-  void loadTerminals(); void loadSecurityQuestions();
+  void loadTerminals(); void loadSecurityQuestions(); void loadLocationShares();
   terminalPollTimer = window.setInterval(() => void loadTerminals(true), 10000);
 });
 onBeforeUnmount(() => {

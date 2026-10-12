@@ -172,10 +172,20 @@
             <li>{{ config.site.contact.email }}</li>
             <li>{{ config.site.contact.phone }}</li>
           </ul>
-          <a class="github-support" :href="githubUrl" target="_blank" rel="noreferrer">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .6a11.4 11.4 0 0 0-3.6 22.2c.57.1.78-.25.78-.55v-2.1c-3.18.7-3.85-1.35-3.85-1.35-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.54-.29-5.2-1.27-5.2-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.45.11-3.03 0 0 .96-.31 3.14 1.17A10.9 10.9 0 0 1 12 6.05c.97 0 1.94.13 2.85.39 2.18-1.48 3.14-1.17 3.14-1.17.62 1.58.23 2.74.11 3.03.73.8 1.18 1.82 1.18 3.07 0 4.4-2.67 5.36-5.22 5.65.41.36.78 1.07.78 2.16v3.2c0 .3.2.66.79.55A11.4 11.4 0 0 0 12 .6Z" /></svg>
-            <span>引擎技术支持</span>
-          </a>
+          <div class="support-links" aria-label="引擎技术支持">
+            <a class="github-support" :href="githubUrl" target="_blank" rel="noreferrer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .6a11.4 11.4 0 0 0-3.6 22.2c.57.1.78-.25.78-.55v-2.1c-3.18.7-3.85-1.35-3.85-1.35-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.54-.29-5.2-1.27-5.2-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.45.11-3.03 0 0 .96-.31 3.14 1.17A10.9 10.9 0 0 1 12 6.05c.97 0 1.94.13 2.85.39 2.18-1.48 3.14-1.17 3.14-1.17.62 1.58.23 2.74.11 3.03.73.8 1.18 1.82 1.18 3.07 0 4.4-2.67 5.36-5.22 5.65.41.36.78 1.07.78 2.16v3.2c0 .3.2.66.79.55A11.4 11.4 0 0 0 12 .6Z" /></svg>
+              <span>SpringAndAutumnGIS</span>
+            </a>
+            <a class="github-support" href="https://threejs.org/" target="_blank" rel="noreferrer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 3l18 6-12 12L3 3Zm6 4 6 2-4 4-2-6Zm3 8 4-4 2 7-6-3Z" /></svg>
+              <span>Three.js</span>
+            </a>
+            <a class="github-support" href="https://www.npmjs.com/package/@maplibre/maplibre-gl-style-spec" target="_blank" rel="noreferrer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 3h4l4 7 4-7h4v18h-4V10l-4 7-4-7v11H4V3Z" /></svg>
+              <span>MapLibre Style Spec</span>
+            </a>
+          </div>
         </div>
       </div>
       <div class="copyright">© 2026 SpringAutumn GIS · 备案号：{{ config.site.contact.record }}</div>

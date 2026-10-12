@@ -507,6 +507,8 @@ h1 span {
 }
 .github-support svg { width: 18px; height: 18px; }
 .github-support:hover { color: white; }
+.support-links { display: grid; align-items: start; gap: 8px; margin-top: 14px; }
+.support-links .github-support { margin-top: 0; }
 .footer-brand { margin-bottom: 18px; }
 .copyright {
   width: min(1200px, calc(100% - 48px));
