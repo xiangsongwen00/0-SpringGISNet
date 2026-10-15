@@ -1,427 +1,257 @@
-# SpringAutumn Auth APK 打包教程（零经验版）
+# Android 调试、打包与安装指南
 
-这份教程只针对 Windows、Android 和本仓库的 `0-auth-Apk` 工程。第一次打包建议先生成“测试 APK”，确认能安装和打开后，再处理正式证书和正式服务器域名。
+> 对应 `0-auth-Apk` 独立 uni-app 工程。最后核对：2026-10-15。本工程与 PC、Python 环境隔离，只通过 HTTP(S) API 关联。
 
-## 一、先理解两个容易混淆的结果
+## 1. 当前工程信息
 
-执行：
+| 项目 | 当前值 |
+| --- | --- |
+| 应用名 | 春秋GIS 人生轨迹 |
+| DCloud AppID | `__UNI__11F019F` |
+| 版本 | `1.1.0` / versionCode `110` |
+| 框架 | uni-app Vue 3 + TypeScript |
+| H5 调试端口 | `5174` |
+| H5 Preview | `4174` |
+| Android 最低/目标 SDK | 23 / 35 |
+| 图标 | `unpackage/res/icons/春秋GIS暖色人生轨迹.png` |
 
-```powershell
-npm run build:app
-```
+原生能力包括 Android Keystore、自身定位/轨迹上传以及终端授权。账户权限仍是一个模块，不是整个 APK 的唯一功能。
 
-得到的是 uni-app 的 App 编译资源，不是可以直接安装的 `.apk` 文件。uni-app 的 npm CLI 不能直接生成云端 APK；生成可安装 APK 仍需使用 HBuilderX 的 App 云端打包功能。
+## 2. 准备工具
 
-本项目包含 Android UTS Keystore 插件。正式测试“绑定设备”和私钥功能时必须运行 Android App，H5 浏览器页面只能检查界面。
+### Node 环境
 
-## 二、准备软件和账号
-
-### 1. 安装 Node.js
-
-当前已经验证可用的版本：
-
-```text
-Node.js 22.16.0
-```
-
-检查：
+推荐 Node.js 22 LTS；当前验证环境为 `22.16.0`：
 
 ```powershell
+nvm use 22
 node -v
 npm -v
-```
-
-### 2. 安装 HBuilderX
-
-1. 打开 DCloud 的 HBuilderX 下载页面。
-2. 下载 Windows 版本，优先选择包含 App 开发能力的版本。
-3. 解压到一个固定目录，例如 `D:\HBuilderX`。
-4. 双击 `HBuilderX.exe`。
-5. 第一次使用 App 功能时，如果提示安装“uni-app 编译器”“App 真机运行”或“UTS 编译”插件，选择安装。
-
-HBuilderX 是解压运行的软件，不要求安装 Android Studio，也不要求本项目维护 Gradle 主工程。
-
-### 3. 登录 DCloud 账号
-
-App 云端打包需要登录 DCloud：
-
-1. 在 HBuilderX 右上角找到登录入口。
-2. 注册或登录 DCloud 开发者账号。
-3. 当前只是内部测试时，不要购买任何付费服务；先使用允许的免费测试打包额度。
-
-## 三、安装项目依赖
-
-打开 PowerShell：
-
-```powershell
 cd E:\0-SpringGISNet\0-auth-Apk
 npm install
-npm run type-check
-npm run build:app
 ```
 
-正确结果应包含：
+`nvm use ww` 不是有效版本。当前 uni-app 依赖要求 Vite 精确为 `5.2.8`，`package.json` 已固定；不要手工改回 5.4，也不要使用 `--force` 或 `--legacy-peer-deps` 忽略冲突。
+
+若编辑器提示找不到 `@vue/tsconfig/tsconfig.json`，先在本工程执行正常的 `npm install`，再重启 TypeScript 服务。不要让编辑器读取 PC 工程的 tsconfig。
+
+### HBuilderX
+
+安装支持当前 uni-app 编译器的 HBuilderX，建议不低于 5.24，优先使用与依赖版本接近的 5.26 或更新稳定版。登录拥有 AppID `__UNI__11F019F` 的 DCloud 账号。
+
+HBuilderX 中导入的是完整目录：
 
 ```text
-DONE Build complete.
+E:\0-SpringGISNet\0-auth-Apk
 ```
 
-如果 `npm install` 又出现 Vite 冲突，先确认 `package.json` 中是：
+不要只导入 `src`，不要重新生成 AppID，也不要把 PC 根工程作为 uni-app 工程运行。
+
+## 3. APK 独立环境配置
+
+只编辑 `config/apk.env.json`：
 
 ```json
-"vite": "5.2.8"
+{
+  "h5DebugServer": {
+    "host": "0.0.0.0",
+    "port": 5174,
+    "strictPort": true,
+    "previewPort": 4174
+  },
+  "api": {
+    "h5DebugBaseUrl": "/api/v1",
+    "h5DevelopmentProxyTarget": "http://8.137.36.114:8080",
+    "androidBaseUrl": "http://8.137.36.114:8080/api/v1"
+  }
+}
 ```
 
-不要使用 `npm install --force` 或 `npm install --legacy-peer-deps`。
+- H5 请求 `/api/v1`，Vite 用 `h5DevelopmentProxyTarget` 转发。
+- 真机不经过 Vite，直接使用 `androidBaseUrl`，所以必须包含 `/api/v1`。
+- 真机中的 `127.0.0.1` 是手机自己，不能指向电脑或服务器。
+- Android 官方模拟器访问开发电脑可用 `10.0.2.2`；真机访问电脑使用同一局域网的电脑 IPv4 地址。
+- 当前公网 HTTP 只适合联调。正式发布应换成可信域名 HTTPS，并重新打包。
 
-## 四、配置 APK 连接的服务器
-
-APK 只读取：
-
-```text
-0-auth-Apk/config/apk.env.json
-```
-
-它不会读取后端的 `env.ini`，也不会读取 PC 的配置。
-
-### 情况 A：使用 Android 模拟器
-
-当前工程已经预配置远程服务器：
-
-```json
-"androidBaseUrl": "http://8.137.36.114:8080/api/v1"
-```
-
-模拟器和真机都可以请求该公网地址。只有需要临时连接开发电脑本机后端时，Android 官方模拟器才改用 `http://10.0.2.2:8080/api/v1`。
-
-### 情况 B：使用真实 Android 手机
-
-使用已经配置的公网服务器时不需要修改地址。只有需要连接开发电脑本机后端时，手机才需要改成电脑局域网地址。手机不能使用 `127.0.0.1` 或 `10.0.2.2` 访问电脑；先在 Windows PowerShell 执行：
-
-```powershell
-ipconfig
-```
-
-在当前 Wi-Fi 网卡下面找到类似：
-
-```text
-IPv4 地址 . . . . . . . . . . . : 192.168.1.25
-```
-
-然后把 `androidBaseUrl` 改成：
+临时连接电脑本机后端示例：
 
 ```json
 "androidBaseUrl": "http://192.168.1.25:8080/api/v1"
 ```
 
-注意：
+这要求后端监听 `0.0.0.0:8080`、手机和电脑处于同一局域网、Windows 防火墙允许专用网络 TCP 8080。
 
-1. 手机和电脑必须连接同一个局域网。
-2. Python 后端必须先启动，并监听 `0.0.0.0:8080`。
-3. Windows 防火墙必须允许 Python 接收专用网络中的 TCP 8080 请求。
-4. 如果路由器开启了“客户端隔离”，手机可能仍无法访问电脑。
-
-### 情况 C：正式发布
-
-正式 APK 不应连接开发电脑，应改为正式 HTTPS 地址，例如：
-
-```json
-"androidBaseUrl": "https://api.example.com/api/v1"
-```
-
-当前预配置的 `http://8.137.36.114:8080` 可用于前期联调，但正式包应升级为 HTTPS。正式包不要使用明文 HTTP，也不要使用 `127.0.0.1`、`10.0.2.2` 或个人电脑局域网地址。
-
-## 五、启动后端并确认 8080
-
-另开一个 PowerShell：
+## 4. H5 页面调试
 
 ```powershell
-cd E:\0-SpringGISNet\0-pythonServer
-D:\condamini\python.exe index.py
+cd E:\0-SpringGISNet\0-auth-Apk
+npm run dev:h5
 ```
 
-正确输出：
+访问 `http://127.0.0.1:5174`。H5 可验证：
 
-```text
-Uvicorn running on http://0.0.0.0:8080
-```
+- 页面布局、中文用户名、登录注册与安全问题。
+- API 可达性、错误提示、快速登录码页面。
+- 轨迹模块的非原生状态和接口展示。
 
-电脑浏览器打开：
+H5 无法验证：
 
-```text
-http://127.0.0.1:8080/api/v1/health
-```
+- Android Keystore UTS 模块。
+- Android 定位权限和真实 GPS。
+- 锁屏/后台定时器、厂商电池优化。
+- 安装升级、签名和原生插件。
 
-应看到：
+H5 出现“需要 App 环境”是正确保护，不表示手机 APK 一定失败。
 
-```json
-{"status":"ok","database":"connected","version":"v1"}
-```
-
-如果 8080 被占用，不要修改项目端口。先在管理员 PowerShell 查询占用者：
+检查命令：
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8080 -State Listen
+npm run type-check
+npm run build:h5
 ```
 
-再根据返回的 `OwningProcess` 查询程序：
+## 5. 原生权限与模块
+
+`src/manifest.json` 当前声明：
+
+- `INTERNET`
+- `ACCESS_COARSE_LOCATION`
+- `ACCESS_FINE_LOCATION`
+- `ACCESS_BACKGROUND_LOCATION`
+- `FOREGROUND_SERVICE`
+- `FOREGROUND_SERVICE_LOCATION`
+- `WAKE_LOCK`
+- uni-app `Geolocation` 模块
+
+Keystore UTS 插件位于 `uni_modules/springgis-keystore`。修改 UTS 插件、manifest 权限、原生模块或 AppID 后，旧自定义基座不会自动拥有新能力，必须重新制作自定义基座或重新云打包。
+
+权限声明只是前提，运行时仍需用户授权。Android 11+ 的后台位置通常需要先授权前台位置，再在系统设置中选择始终允许；荣耀/华为设备还可能需要关闭电池优化、允许后台活动和自启动。
+
+重要限制：当前 JavaScript 定时上传在前台最可靠。仅声明后台定位/前台服务权限，并不自动等于已经实现持续原生前台服务；锁屏或被系统清理时仍可能降频/停止。需要严格全天后台轨迹时，应另行实现并测试原生前台定位服务。
+
+## 6. 真机运行调试
+
+由于工程包含 UTS 原生插件，优先使用自定义调试基座：
+
+1. 手机开启开发者选项和 USB 调试。
+2. USB 连接电脑，确认 HBuilderX 能识别设备。
+3. HBuilderX 打开整个 `0-auth-Apk`。
+4. 选择“运行 → 运行到手机或模拟器 → 制作自定义调试基座”。
+5. 基座制作完成后，选择该自定义基座运行到 Android。
+6. 手机首次启动时按顺序授予定位权限。
+
+若更改原生插件或权限，删除旧基座并重新制作。只执行 `npm run dev:app` 或热更新 JavaScript 不能替代基座重建。
+
+定位调试顺序：
+
+1. 登录并确认终端已经绑定。
+2. 在系统设置确认精确位置权限。
+3. 在 APK 中开启轨迹，选择 1s/2s/5s/60s 等频率。
+4. 保持前台移动，观察最近位置和上传时间。
+5. 再测试锁屏、切后台、断网恢复和电池优化场景。
+6. 使用 PC 同账户查看当前终端位置和历史轨迹。
+
+## 7. 命令行构建与 APK 的区别
 
 ```powershell
-Get-CimInstance Win32_Process -Filter "ProcessId=这里填写进程号"
+npm run type-check
+npm run build:app
 ```
 
-确认不是系统关键服务和自己的重要程序后，再关闭占用程序。
+`build:app` 会生成供 App 打包使用的编译资源，一般位于 `unpackage/dist/build/app-plus`；它不是可安装 APK。最终 APK 仍需 HBuilderX 的“发行 → 原生 App-云打包”或配置完整 Android 原生环境后的本地 App 打包。
 
-## 六、把项目导入 HBuilderX
+## 8. HBuilderX 云打包
 
-1. 打开 HBuilderX。
-2. 点击顶部菜单“文件”。
-3. 选择“导入”。
-4. 选择“从本地目录导入”。
-5. 选择目录：
+### 打包前检查
 
-   ```text
-   E:\0-SpringGISNet\0-auth-Apk
-   ```
+1. `npm install` 成功且 `npm run type-check` 通过。
+2. `manifest.json` 中 AppID、版本、权限、Geolocation 模块正确。
+3. `config/apk.env.json` 的 `androidBaseUrl` 是手机可达的正式地址。
+4. 图标文件存在，清晰且路径未改变。
+5. UTS 插件可以在自定义基座编译运行。
+6. 后端迁移完成，health、登录、绑定、位置接口都可用。
 
-6. 导入后，项目管理器中应看到 `package.json`、`vite.config.ts` 和 `src`。
-7. 如果项目图标没有被识别为 uni-app，右键项目，选择“重新识别项目类型”。
+### 操作步骤
 
-这是 Vue 3 + TypeScript 的 uni-app CLI 工程。不要只导入 `src`，也不要导入根目录 `E:\0-SpringGISNet`。
+1. 在 HBuilderX 左侧选中项目 `0-auth-Apk`。
+2. 打开 `manifest.json` 可视化界面，确认 AppID、Android 权限和模块。
+3. 选择“发行 → 原生 App-云打包”。
+4. 平台只选 Android。
+5. 首次内部测试可使用云端证书；正式发布必须使用自己的固定签名证书并妥善备份。
+6. 包类型选择 APK；若应用商店要求可另选 AAB。
+7. 包含原生插件/权限变更时使用传统云打包，不要误用无法包含插件的快速安心打包流程。
+8. 提交后等待构建，下载产物并保存构建日志和版本号。
 
-## 七、取得 DCloud AppID
+同一应用升级必须使用相同 AppID、包名和签名，并递增 `versionCode`。签名私钥、alias 和密码丢失后将无法覆盖升级已有安装。
 
-当前 `src/manifest.json` 的 `appid` 为空，云端打包前必须取得 AppID。
+## 9. 安装与升级
 
-1. 在 HBuilderX 中打开 `0-auth-Apk/src/manifest.json`。
-2. HBuilderX 应显示可视化的 Manifest 配置页面；如果显示源码，寻找“可视化”切换入口。
-3. 打开“基础配置”。
-4. 找到“DCloud AppID”。
-5. 点击“重新获取”或“获取 AppID”。
-6. 按提示在当前 DCloud 账号下创建应用。
-7. 确认 AppID 已写回 `src/manifest.json`。
-
-AppID 是 DCloud 应用标识，不是 Android 包名。取得后不要随意更换，否则云端服务、插件和后续升级可能被视为另一个应用。
-
-## 八、检查应用基础信息和权限
-
-仍在 `src/manifest.json` 中检查：
-
-```text
-应用名称：SpringAutumn Auth
-版本名称：1.0.0
-版本号：100
-Android 最低版本：API 23
-Android 目标版本：API 35
-```
-
-本项目设计上只需要 Android 的网络权限：
-
-```text
-android.permission.INTERNET
-```
-
-不要随意添加短信、通讯录、位置、相机、电话、设备标识或存储权限。如果 HBuilderX 自动生成额外权限，打包前必须核对原因。
-
-正式应用还应准备不同尺寸的 App 图标。当前 `src/static/logo.png` 可以用于开发识别，但发布前应在 Manifest 的“App 图标配置”中生成和检查 Android 图标。
-
-## 九、第一次建议先做真机调试
-
-### 1. 准备 Android 手机
-
-1. 打开手机“设置”。
-2. 连续点击系统版本号，开启“开发者选项”。
-3. 在开发者选项中打开“USB 调试”。
-4. 用支持数据传输的 USB 线连接电脑。
-5. 手机弹出“是否允许 USB 调试”时选择允许。
-6. 某些国产手机还需要开启“USB 安装”或“通过 USB 验证应用”。
-
-### 2. 使用 HBuilderX 运行
-
-1. 在 HBuilderX 中选中 `0-auth-Apk` 项目。
-2. 点击“运行”。
-3. 选择“运行到手机或模拟器”。
-4. 选择检测到的 Android 设备。
-5. 如果提示安装真机运行插件，允许安装。
-
-本项目的 UTS 插件只使用 Android 系统 Keystore，没有额外第三方 SDK。普通 UTS 代码可先尝试标准基座；如果 Keystore 模块没有被加载，或者 Manifest/原生配置没有生效，则按下一节制作自定义调试基座。
-
-## 十、制作自定义调试基座（需要时）
-
-自定义调试基座用于边开发边看日志，它不是给用户发布的正式 APK。
-
-1. 选中 `0-auth-Apk`。
-2. 点击“发行”。
-3. 选择“原生 App - 云打包”。不同 HBuilderX 版本也可能显示为“App 云端打包”。
-4. 选择 Android。
-5. 选择“自定义调试基座”或“制作自定义基座”。
-6. 使用测试证书或云端自动生成的开发证书。
-7. 提交打包，等待完成。
-8. 一般会在项目的 `unpackage/debug` 下生成 `android_debug.apk`。
-9. 回到“运行到手机或模拟器”，选择“自定义基座 - 本地基座”。
-
-自定义调试基座启动时可能提示它是调试基座，不能当作正式安装包发布。
-
-## 十一、生成可安装的正式测试 APK
-
-### 1. 确定 Android 包名
-
-推荐使用稳定、全小写、反向域名格式，例如：
-
-```text
-com.springautumn.auth
-```
-
-包名一旦用于安装和发布，后续不要更换。更换包名后 Android 会把它视为另一个应用，不能直接覆盖升级。
-
-### 2. 选择签名证书
-
-第一次仅供内部安装测试，可以在云端打包页面选择“使用云端证书”，让 DCloud 生成开发证书。
-
-准备正式长期发布时，应生成并使用自有 `.keystore` 证书。证书必须：
-
-- 长期备份至少两份；
-- 不提交到代码仓库；
-- 不通过聊天工具公开发送；
-- 单独保存证书密码和别名；
-- 后续每个升级包继续使用同一个证书。
-
-如果证书丢失，通常无法再用新证书覆盖安装已经发布的同包名应用。
-
-### 3. HBuilderX 云端打包
-
-1. 选中 `0-auth-Apk`。
-2. 点击“发行”。
-3. 选择“原生 App - 云打包”。
-4. 只勾选 Android。
-5. 填写固定包名，例如 `net.springautumn.auth`。
-6. 选择“正式包”，不要选择自定义调试基座。
-7. 第一次内部测试可选择“使用云端证书”。
-8. 保持“安心打包”开启；若提示安装安心打包插件，安装后重新提交。
-9. 确认应用名称、版本号、包名和证书。
-10. 点击“打包”或“提交打包”。
-11. 等待 HBuilderX 控制台显示完成。
-
-通常 APK 会保存到：
-
-```text
-0-auth-Apk/unpackage/release/apk/
-```
-
-HBuilderX 版本不同，最终控制台可能显示另一个保存位置，应以控制台提供的完整路径为准。
-
-## 十二、安装 APK
-
-方法一：把 APK 复制到手机，点击安装。Android 可能要求允许文件管理器“安装未知应用”。
-
-方法二：电脑已安装 adb 时执行：
+通过 ADB 安装：
 
 ```powershell
 adb devices
-adb install -r "APK完整路径.apk"
+adb install -r .\path\to\springgis.apk
 ```
 
-`-r` 表示保留数据并覆盖升级，但前提是新旧 APK 的包名和签名证书一致。
+`-r` 保留应用数据升级。若签名不同会安装失败；不要为了绕过签名问题随意卸载生产用户的 APK。
 
-安装后至少检查：
+卸载会清除应用数据和 Android Keystore 私钥。服务器仍保留旧终端公钥/绑定时，新安装可能需要迁移或重新绑定流程，不能把卸载重装当成普通升级。
 
-1. 应用名称和图标正确；
-2. 应用能正常打开，没有白屏；
-3. 可以连接 `8080` 后端并登录；
-4. 关闭应用再打开后行为正常；
-5. 设备绑定时没有索要短信、通讯录、位置等权限；
-6. Android Keystore 密钥只在 App 环境生成；
-7. 六位码功能在后端对应接口完成后可以正常确认或拒绝。
+## 10. 完整验收清单
 
-当前后端尚未完成全部 Terminal、快速登录和恢复接口时，相关按钮应明确显示接口失败；不能把“客户端打包成功”误认为“所有业务接口已经完成”。
+- 应用名、图标、版本正确。
+- 注册必须填写两个不同安全问题与答案，中文用户名可用。
+- 密码登录、刷新、退出正常。
+- 首次绑定需要密码和首次绑定授权码；Keystore 公钥生成并提交成功。
+- 六位快速登录验证码在规定周期内轮换，PC/APK 的方向符合业务设计。
+- 非首次查看绑定/迁移授权码需密码和安全问题验证。
+- 定位权限拒绝、仅使用时允许、始终允许三种分支都有清晰提示。
+- 默认 2 秒频率可上传；切换其他频率生效；停止轨迹后不再写入。
+- 当前实时位置、三天内历史轨迹、分享/撤销权限符合账户边界。
+- 断网后不会崩溃，恢复网络后状态可理解且不重复制造异常点。
+- 锁屏和荣耀/华为省电策略下的实际行为有记录，不把前台测试结果当作后台保证。
 
-## 十三、最常见问题
+## 11. 常见错误
 
-### HBuilderX 没有 App 云端打包菜单
+### npm ERESOLVE，Vite 5.4.21 与 5.2.8 冲突
 
-- 确认导入的是 `0-auth-Apk` 整个目录；
-- 右键项目，执行“重新识别项目类型”；
-- 安装 uni-app、App 和 UTS 相关插件；
-- 登录 DCloud 账号；
-- 尽量使用 HBuilderX App 开发版。
+确保 `package.json` 中 Vite 是精确 `5.2.8`，删除由错误版本产生的本工程 `node_modules` 后重新执行 `npm install`。不要更改 PC 工程依赖，也不要使用 force。当前仓库已固定正确版本。
 
-### 手机连接不到电脑上的 8080
+### SpringGIS Android Keystore not found
 
-- APK 配置不能写 `127.0.0.1`；
-- 真机要写电脑局域网 IPv4；
-- 手机和电脑连接同一网络；
-- 检查 Windows 防火墙；
-- 浏览器先访问后端健康检查；
-- 公司或公共 Wi-Fi 可能禁止设备互访。
+H5 或标准基座中没有此 UTS 原生模块。制作包含 `uni_modules/springgis-keystore` 的自定义基座，或重新云打包并安装新 APK。若日志显示模块加载成功，则继续检查服务端绑定接口，不再把问题归因于硬件权限。
 
-### APK 无法覆盖安装
+### UTS Kotlin 编译失败，Key 不是 PrivateKey
 
-新旧 APK 的包名或签名证书不一致。卸载旧 App 可以重新安装，但会清除旧 App 本地数据和 Android Keystore 中与该 App 相关的密钥，不能作为正式升级方案。
+说明云端编译到了旧版/错误版 UTS 源码或插件类型未修正。确认 `index.kt` 使用 `PrivateKey`，清理旧打包缓存并重新提交；不要继续安装旧失败产物。
 
-### `npm run build:app` 后找不到 APK
+### 绑定提交 Not Found
 
-这是正常的。该命令只生成 App 编译资源；可安装 APK 必须继续通过 HBuilderX 的 App 云端打包生成。
+确认 `androidBaseUrl` 包含 `/api/v1`，服务器已部署含终端路由的新代码并重启。用手机浏览器访问 health，随后查看后端日志中的实际路径。
 
-### 打包后接口仍指向旧地址
+### 定位无回调
 
-修改 `config/apk.env.json` 后必须重新打包。已经生成的 APK 不会在安装后重新读取电脑上的 JSON 文件。
+依次检查 manifest 模块、运行时精确位置、系统定位总开关、荣耀/华为后台活动和电池优化、网络、APK 是否为权限变更后的新包。H5 成功不代表原生定位已验证。
 
-### 点击“绑定当前设备”后如何看日志
+### 手机连不上 API
 
-登录后点击“绑定当前设备”，页面会出现“绑定诊断日志”。正常 Android APK 应依次显示：
+- 公网地址：检查 8080/443 安全组和 health。
+- 局域网电脑：后端监听 `0.0.0.0`，手机同 Wi-Fi，Windows 防火墙允许 8080。
+- `127.0.0.1`：在真机上一定是手机自身，必须改掉。
+- Android 报 cleartext：正式解决是部署 HTTPS，不建议长期放宽明文策略。
 
-```text
-appBuild=true，platform=android
-正在加载 Android Keystore UTS 模块
-UTS 模块加载成功
-Keystore 公钥准备完成
-正在向服务器提交公钥绑定请求
-```
+### 修改了配置但手机仍旧行为
 
-日志不会输出密码、访问令牌、私钥或完整公钥。
+H5 配置热更新不等于已安装 APK 更新。重新构建/云打包、递增 versionCode、用相同签名安装，再在应用信息中核对版本。
 
-- `appBuild=false`：安装的仍是旧 APK，或实际运行的是 H5；递增版本号后重新云打包并安装。
-- `platform` 不是 `android`：当前运行环境不是 Android App。
-- 停在“正在加载 UTS 模块”：APK 没有正确包含 UTS 插件，应重新生成 App 资源并重新云打包。
-- 已生成公钥，但显示 HTTP `404`：Android 原生部分正常，服务器尚未部署终端绑定接口。
-- 显示 HTTP `500`：查看 Python 后端日志和数据库迁移状态。
+## 12. 发布物保存
 
-Android Keystore 是 Android 系统提供给应用的密钥容器，生成本应用自己的密钥不需要申请相机、存储、定位、通讯录、电话、短信或读取硬件标识权限。项目只需要联网使用的 `INTERNET` 权限；不要为了修复绑定而增加读取设备标识的权限。
+每次发布至少保存：
 
-### 提示 `SpringGIS Android Keystore not found`
-
-这表示前端代码已经调用 UTS 插件，但安装包的原生层没有包含该插件，不是 Android Keystore 权限不足。
-
-1. HBuilderX 主程序版本必须与项目 uni-app 编译器同代。本项目编译器为 `5.24`，应升级 HBuilderX 到 `5.24` 或更新版本；推荐直接升级到当前提示的 `5.26`。
-2. 关闭“安心打包/快速打包”，至少执行一次“传统云端打包”，强制云端重新编译 UTS 原生代码。
-3. 不要使用之前缓存的 APK，确认新包版本为 `1.1.0 (110)`。
-4. 使用相同包名和签名安装新包；若覆盖安装失败，先核对签名，不要随意卸载正式绑定过的 App。
-5. 传统云打包成功并验证 UTS 模块存在后，后续纯前端修改才可以恢复使用安心打包。
-
-## 十四、正式发布前检查清单
-
-- [ ] `api.androidBaseUrl` 已改成正式 HTTPS API；
-- [ ] AppID 固定且由项目自己的 DCloud 账号管理；
-- [ ] Android 包名固定；
-- [ ] 使用自有正式签名证书；
-- [ ] 证书和密码已经离线备份；
-- [ ] 版本名称和版本号已递增；
-- [ ] 只有业务确实需要的 Android 权限；
-- [ ] 隐私声明与实际采集行为一致；
-- [ ] 真机登录、设备绑定、退出和异常网络均已测试；
-- [ ] 首次开启轨迹时能弹出定位权限，拒绝后不会上传位置；
-- [ ] 荣耀系统的“位置信息”权限设为允许，并按需求关闭电池优化；
-- [ ] 切换 1/2/5/10/30/60 秒频率后，后端设置和新轨迹段频率一致；
-- [ ] 后端使用 HTTPS；
-- [ ] APK 没有连接开发电脑地址；
-- [ ] 保留最终 APK、对应源码版本、包名、AppID 和证书指纹记录。
-
-## 十五、官方参考
-
-- uni-app CLI 与 App 打包：https://uniapp.dcloud.net.cn/worktile/CLI.html
-- HBuilderX 真机运行和自定义基座：https://uniapp.dcloud.net.cn/tutorial/run/run-app
-- Manifest 与 DCloud AppID：https://uniapp.dcloud.net.cn/tutorial/app-base
-- UTS 插件真机运行：https://uniapp.dcloud.net.cn/plugin/uts-plugin.html
-- Android 签名证书说明：https://ask.dcloud.net.cn/article/35985
-- Android `.keystore` 生成指南：https://ask.dcloud.net.cn/article/35777
-- 安心打包：https://uniapp.dcloud.net.cn/tutorial/build/SafePack
+- APK/AAB 文件及 SHA-256。
+- AppID、versionName、versionCode、构建时间。
+- HBuilderX/uni-app 编译器版本。
+- 使用的 Git 提交号。
+- 签名证书指纹（不保存明文密码到仓库）。
+- 云打包成功/失败日志。
+- 对应服务端 API 版本与数据库迁移版本。

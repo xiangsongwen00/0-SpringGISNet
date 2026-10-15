@@ -1,49 +1,37 @@
 # SpringAutumn GIS Python API
 
-第一阶段提供最小信息账户注册、密码登录、令牌刷新、退出登录、当前账户查询，以及 Android Keystore 公钥挑战绑定。服务只保存用户名与认证所需数据，不接收邮箱、手机号、真实姓名或原始设备标识。Web 端的 Refresh Token 使用 `HttpOnly + SameSite=Strict` Cookie，JavaScript 不可读取；非浏览器客户端可从响应体取得令牌并交由系统安全存储。
+FastAPI 后端负责账户、会话、安全问题、终端授权、位置轨迹与分享权限。服务只保存业务所需信息，不接收邮箱、手机号、短信、真实姓名或原始设备标识。
 
-## 运行
+## 文档
 
-```powershell
-cd 0-pythonServer
-python -m pip install -r requirements.txt
-python index.py
-```
+- [服务端部署指南](服务端部署指南.md)：Windows、Docker、1Panel、8080、CORS、日志和发布。
+- [数据库部署与迁移指南](数据库部署与迁移指南.md)：PostGIS、PgBouncer、备份、迁移和故障排查。
+- [完整 API 文档](../API.md)：接口字段、状态码和调用示例。
+- [系统总指南](../环境配置说明.md)：PC、服务、数据库和 APK 的整体顺序。
 
-后端全局运行配置只位于 `env.ini`，端口固定为 `8080`，接口文档位于 `http://localhost:8080/docs`。后端不读取 PC 或 APK 的配置文件。
-
-如果本机 `8080` 已被其他服务占用，可以临时使用：
+## 最短启动流程
 
 ```powershell
-python index.py --port 18081
+cd E:\0-SpringGISNet\0-pythonServer
+D:\condamini\python.exe -m pip install -r requirements.txt
+D:\condamini\python.exe index.py --migrate
+D:\condamini\python.exe index.py
 ```
 
-`--port` 只用于临时诊断；本项目正常启动请保持 `env.ini` 中的 `8080`。PC 与 APK 各自维护自己的连接地址，后端不会读取或修改它们。
+- 固定端口：`8080`
+- 健康检查：`http://127.0.0.1:8080/api/v1/health`
+- Swagger：`http://127.0.0.1:8080/docs`
+- 后端配置：`env.ini`
+- 数据库配置：`data/postgis.json`
 
-完整接口定义和调用示例见根目录的 `API.md`。
-
-数据库默认读取 `data/postgis.json`。配置支持 `database` 字段；缺省时使用数据库用户名作为库名。生产环境推荐通过 `SPRINGGIS_DATABASE_URL` 和 `SPRINGGIS_SECRET_KEY` 注入配置，不要把凭据提交到版本库。
-
-首次部署或代码更新后，在 `0-pythonServer` 目录执行：
-
-```powershell
-python index.py --migrate
-```
-
-迁移成功后启动服务：
-
-```powershell
-python index.py
-```
-
-测试目录中的兼容入口只能从仓库根目录运行：`python 0-testpy/apply_migration.py`。
+测试目录兼容迁移入口只能从仓库根目录运行：`D:\condamini\python.exe 0-testpy\apply_migration.py`。日常优先使用当前目录的 `index.py --migrate`。
 
 ## 目录边界
 
 - `app/api/v1`：版本化 HTTP 路由
-- `app/services`：会话、审计等业务逻辑
+- `app/services`：会话、审计、授权与位置业务逻辑
 - `app/models.py`：持久化模型
 - `app/schemas.py`：输入输出白名单
-- `migrations`：PostgreSQL 迁移文件
-- `data`：运行配置，不放业务代码
+- `migrations`：按版本执行的 PostgreSQL 迁移
+- `data`：运行配置和密钥，不放业务代码
 

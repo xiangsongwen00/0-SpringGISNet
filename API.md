@@ -50,6 +50,7 @@ SPRINGGIS_SECRET_KEY
 SPRINGGIS_ACCESS_TOKEN_MINUTES
 SPRINGGIS_REFRESH_TOKEN_DAYS
 SPRINGGIS_CORS_ORIGINS
+SPRINGGIS_AMAP_WEB_SERVICE_KEY
 ```
 
 三个程序的配置文件完全独立：
@@ -97,12 +98,14 @@ API 前缀：http://8.137.36.114:8080/api/v1
 
 该地址已经分别写入 PC 和 APK 自己的配置文件，没有写入 CORS。APK 直接请求完整 API 地址；PC 浏览器只请求同源 `/api/v1`，由开发代理或生产反向代理转发到该服务器。这样不需要跨域，也能维持 `SameSite=Strict` Refresh Cookie。正式公网通信仍应升级为 HTTPS。
 
-当前仓库配置的服务地址和 API 前缀：
+后端在服务器或开发机自身的本地检查地址：
 
 ```text
 http://127.0.0.1:8080
 http://127.0.0.1:8080/api/v1
 ```
+
+这里的 `127.0.0.1` 仅用于运行后端的同一台机器，不是 PC/APK 当前配置的远程上游。完整部署、数据库和打包步骤以[系统环境与部署总指南](环境配置说明.md)为入口。
 
 非生产环境 OpenAPI 页面：
 

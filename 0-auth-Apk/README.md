@@ -1,74 +1,42 @@
-<!--
- * @Author: yangjie
- * @Date: 2026-09-25 01:47:47
- * @LastEditors: yangjie 
- * @LastEditTime: 2026-09-25 02:43:18
- * @FilePath: \0-SpringGISNet\0-auth-Apk\README.md
- * @Description: 
- * 
- * Copyright (c) 2026 by bimcc, All Rights Reserved. 
--->
 # 春秋GIS 人生轨迹
 
-位置轨迹与独立授权 APK，目录固定为 `0-auth-Apk`。技术栈为 Vue 3 + TypeScript + uni-app；Android Keystore 通过项目内的 UTS 模块调用，不维护单独的 Android Studio/Gradle 主工程。角色权限是应用中的一个独立模块，不再占据全部首页。
+`0-auth-Apk` 是独立的 Vue 3 + TypeScript + uni-app Android 工程。它负责账户/终端授权模块、实时定位和个人轨迹；不读取 PC 或 Python 项目的配置，只通过 API 与服务端关联。
 
-## 职责
+## 文档
 
-- 登录已有账户；
-- 生成并绑定 Android Keystore P-256 终端密钥；
-- 生成并每 45 秒刷新六位快速登录验证码，供 PC 输入；
-- 在密码和两道安全问题校验后生成一次性迁移授权码；
-- 生成独立的终端撤销授权码或 6 位撤销验证码，供 PC 完成有条件撤销；
-- 确认账户恢复；
-- 查看和撤销当前终端。
-- 用户主动开启后，以 WGS84 记录实时位置，默认每 2 秒写入；
-- 支持 1、2、5、10、30、60 秒频率和明确停止；
-- 位置默认仅本人可见，共享授权由 PC 账户管理创建和撤销。
+- [Android调试、打包与安装指南](APK打包教程.md)：从 npm 安装、H5、自定义基座到云打包、签名、安装和故障排查。
+- [系统总指南](../环境配置说明.md)：完整部署顺序与端口表。
+- [API 文档](../API.md)：登录、终端、授权码和位置接口。
 
-不包含注册、文章、社区、短信、通讯录、广告或扫码。不采集 IMEI、MAC、手机号、邮箱或真实身份。定位默认关闭，开启时使用定位、前台定位服务和后台定位权限；后台实际采样仍受 Android/荣耀系统省电策略约束。
-
-## 安装与页面调试
+## 最短 H5 调试流程
 
 ```powershell
-cd 0-auth-Apk
+cd E:\0-SpringGISNet\0-auth-Apk
+nvm use 22
 npm install
 npm run dev:h5
 ```
 
-H5 只用于调试布局，不生成或保存终端私钥。
+H5 地址为 `http://127.0.0.1:5174`。它只能调试布局和普通 API；Android Keystore、定位权限与后台行为必须使用自定义基座或正式 APK 真机验证。
 
-本机开发端口固定分开：Python API 为 `8080`，PC Web 为 `5173`，本工程的 H5 调试为 `5174`。正式 APK 是客户端，不监听 HTTP 端口。若 `5174` 已被占用，开发命令会直接报错，避免自动换端口造成混淆。
-
-## App 编译与 APK
+## 检查与 App 资源构建
 
 ```powershell
+npm run type-check
+npm run build:h5
 npm run build:app
 ```
 
-CLI 生成 App 资源。正式 APK 使用 HBuilderX 打开本目录，通过“发行 → App 云端打包”生成。项目包含 UTS Android Keystore 模块，需使用支持 UTS 的 HBuilderX App 开发版进行真机验证。
+`build:app` 生成 App 打包资源，不是可安装 APK。最终 APK 使用 HBuilderX 打开本目录，通过“发行 → 原生 App-云打包”生成，具体步骤见打包指南。
 
-首次云端打包前需在 HBuilderX 中为 `manifest.json` 获取或填写 DCloud AppID，并配置正式 Android 包名和签名证书。签名证书不得提交到仓库。
+## 当前边界
 
-本工程只读取 `config/apk.env.json`，不读取后端或 PC 配置。H5 调试通过本工程自己的 Vite 代理访问 API，不要求后端开放 localhost CORS；`api.androidBaseUrl` 用于 Android。当前已预配置 `http://8.137.36.114:8080/api/v1`，正式发布改用 HTTPS 的方法见 `APK打包教程.md`。
+- 应用名：春秋GIS 人生轨迹
+- AppID：`__UNI__11F019F`
+- 版本：`1.1.0` / `110`
+- H5 端口：`5174`
+- 配置：`config/apk.env.json`
+- 图标：`unpackage/res/icons/春秋GIS暖色人生轨迹.png`
+- 默认轨迹频率：2 秒，可选 1/2/5/10/30/60 秒
 
-完整的新手打包步骤见：[APK打包教程.md](./APK打包教程.md)。
-
-## 当前后端依赖
-
-以下接口由后端下一阶段实现；未实现时客户端会明确显示失败，不会模拟成功：
-
-```text
-POST /api/v1/terminals/bind/start
-POST /api/v1/terminals/bind/confirm
-POST /api/v1/terminals/session/start
-POST /api/v1/terminals/session/confirm
-POST /api/v1/terminals/authorization-codes
-GET  /api/v1/terminals/current
-POST /api/v1/terminals/revoke-codes
-POST /api/v1/auth/quick/start
-POST /api/v1/auth/quick/consume
-```
-
-## 依赖说明
-
-工程由官方 Vue3/Vite/TS 模板创建，并已删除小程序、鸿蒙和快应用依赖。当前官方编译器依赖树仍会被 `npm audit` 报告若干构建期间接依赖告警；没有执行会破坏 DCloud 版本配套关系的 `npm audit fix --force`。发布前应随 HBuilderX/uni-app 官方版本整体升级后重新审计，开发服务器不得暴露到公网。
+不采集 IMEI、MAC、手机号、邮箱或真实身份。定位默认关闭，用户主动开启后才记录；位置默认仅本人可见，分享由用户主动创建并可撤销。后台实际采样仍受 Android 和荣耀/华为省电策略限制。
