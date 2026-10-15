@@ -78,6 +78,10 @@ async function checkPage(path, expectedStatus) {
 try {
   await checkPage('/sdk.html?smoke=1', 'passed');
   await checkPage('/sdk-js.html?smoke=1', 'passed');
+  // Embedded mode hides only the playground chrome. SDK-created tool panels
+  // must remain visible inside the PC site's iframe.
+  await checkPage('/sdk.html?smoke=1&embedded=1', 'passed');
+  await checkPage('/sdk-js.html?smoke=1&embedded=1', 'passed');
   await checkPage('/sdk.html', 'blocked');
   await checkPage('/sdk-js.html', 'blocked');
   await checkPage('/', 'blocked');

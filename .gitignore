@@ -9,6 +9,7 @@ __pycache__/
 .coverage
 htmlcov/
 0-pythonServer/data/server_secret.key
+0-pythonServer/data/amap_web_service.key
 0-pythonServer/data/*.db
 0-testpy/reports/
 *gis.json

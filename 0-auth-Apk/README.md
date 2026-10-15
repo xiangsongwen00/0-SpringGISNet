@@ -1,6 +1,6 @@
 # 春秋GIS 人生轨迹
 
-`0-auth-Apk` 是独立的 Vue 3 + TypeScript + uni-app Android 工程。它负责账户/终端授权模块、实时定位和个人轨迹；不读取 PC 或 Python 项目的配置，只通过 API 与服务端关联。
+`0-auth-Apk` 是独立的 Vue 3 + TypeScript + uni-app Android 工程。它负责账户/终端授权模块、实时定位、个人轨迹和 SpringAndAutumnGIS 三维地图；不读取 PC 配置，只通过 API 与服务端关联。
 
 ## 文档
 
@@ -35,8 +35,22 @@ npm run build:app
 - AppID：`__UNI__11F019F`
 - 版本：`1.1.0` / `110`
 - H5 端口：`5174`
-- 配置：`config/apk.env.json`
+- 环境/API 配置：`config/apk.env.json`
+- 地图资源配置：`config/token.json`（本机私有文件，不提交 Git）
 - 图标：`unpackage/res/icons/春秋GIS暖色人生轨迹.png`
 - 默认轨迹频率：2 秒，可选 1/2/5/10/30/60 秒
+- 三维引擎：APK 自带 `vendor/spring-and-autumn-gis-0.1.0.tgz`，支持安卓触控工具栏和当前终端位置标记
+
+本机已将根目录 `token.json` 中允许进入客户端的地图字段复制为 APK 独立配置 `config/token.json`。这是一次性导入：APK 编译只读取自己的文件，之后修改根目录文件不会自动影响 APK。新电脑先执行：
+
+```powershell
+.\scripts\import-map-token.ps1
+```
+
+导入脚本会主动排除 `serverToken`、Mapbox 服务端令牌和其他服务端字段，避免它们进入可反编译的 APK。
+
+底图支持“天地图影像”和“Google 卫星影像”，并保留 `config/apk.env.json` 中的自定义 XYZ/TMS 入口。Google 卫星必须在 APK 的 `config/token.json` 中配置有授权的 `google.satelliteUrl`，项目不会内置非官方瓦片地址。工具栏会自动列出所有已配置底图。
+
+地形按以下优先级启用：`demo.terrain` 自定义 Terrain-RGB、`maptiler.key`、`geovis.terrainToken`。可通过 `config/apk.env.json` 的 `map.terrainEnabled` 总开关关闭。若底图或地形均未配置，引擎仍显示 WGS84 三维地球和经纬网。字段模板见 `config/token.example.json`。
 
 不采集 IMEI、MAC、手机号、邮箱或真实身份。定位默认关闭，用户主动开启后才记录；位置默认仅本人可见，分享由用户主动创建并可撤销。后台实际采样仍受 Android 和荣耀/华为省电策略限制。

@@ -15,7 +15,9 @@
 | Android 最低/目标 SDK | 23 / 35 |
 | 图标 | `unpackage/res/icons/春秋GIS暖色人生轨迹.png` |
 
-原生能力包括 Android Keystore、自身定位/轨迹上传以及终端授权。账户权限仍是一个模块，不是整个 APK 的唯一功能。
+原生能力包括 Android Keystore、自身定位/轨迹上传、SpringAndAutumnGIS 三维地图以及终端授权。账户权限仍是一个模块，不是整个 APK 的唯一功能。
+
+三维地图 SDK 已独立保存在 `vendor/spring-and-autumn-gis-0.1.0.tgz`。App 的 renderjs/WebView 直接加载打包后的 SDK，不打开 PC 页面，也不依赖 PC 工程运行。单指旋转，双指平移/俯仰，双指捏合缩放；测量和绘制使用轻触落点。
 
 ## 2. 准备工具
 
@@ -122,6 +124,23 @@ npm run build:h5
 - `FOREGROUND_SERVICE_LOCATION`
 - `WAKE_LOCK`
 - uni-app `Geolocation` 模块
+
+地图凭据与资源地址只读取 APK 自己的 `config/token.json`，不会在运行时读取 PC 工程配置。首次构建或更新资源凭据时，在 `0-auth-Apk` 目录执行：
+
+```powershell
+.\scripts\import-map-token.ps1
+```
+
+该脚本只导入允许进入客户端的地图字段，并排除 `serverToken` 和 Mapbox 服务端令牌；它不会建立同步关系，导入后 PC 与 APK 两份文件完全独立。`config/token.json` 已被 Git 忽略，字段格式见 `config/token.example.json`。发布前仅放允许随客户端分发、已限制来源和配额的公开 Key，严禁放服务端私钥。
+
+- `tianditu.token`：显示“天地图影像”。
+- `google.satelliteUrl`：显示“Google 卫星影像”，必须填写你有权使用的 XYZ 瓦片模板；项目不内置未经授权的 Google 瓦片端点。
+- `demo.terrain`：优先使用自定义 Terrain-RGB TileJSON 或 URL 模板。
+- `maptiler.key`：未配置自定义地形时，使用 MapTiler Terrain-RGB。
+- `geovis.terrainToken`：前两项为空时，作为 GeoVIS Terrain-RGB 后备。
+- `demo.defaultBaseMap`：可填 `tianditu-imagery` 或 `google-satellite`。
+
+`config/apk.env.json` 的 `map` 段只保留非敏感运行参数、自定义 `xyzUrl` 和 `terrainEnabled` 总开关。高德 Web 服务 Key 仍只放 Python 服务端，用于 IP 定位和经纬度地名反查，不能作为底图 Key 打进 APK。
 
 Keystore UTS 插件位于 `uni_modules/springgis-keystore`。修改 UTS 插件、manifest 权限、原生模块或 AppID 后，旧自定义基座不会自动拥有新能力，必须重新制作自定义基座或重新云打包。
 

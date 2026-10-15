@@ -103,6 +103,20 @@ def _parse_cors_origins(raw_origins: str) -> tuple[str, ...]:
     return origins
 
 
+def _read_amap_web_service_key(ini: ConfigParser) -> str:
+    explicit = os.getenv("SPRINGGIS_AMAP_WEB_SERVICE_KEY", "").strip()
+    if explicit:
+        return explicit
+    inline = ini.get("geocoding", "amap_web_service_key", fallback="").strip()
+    if inline:
+        return inline
+    key_file = ini.get("geocoding", "amap_web_service_key_file", fallback="").strip()
+    if not key_file:
+        return ""
+    path = _resolve_from_base(key_file)
+    return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+
+
 @lru_cache
 def get_settings() -> Settings:
     ini = _read_ini()
@@ -146,9 +160,6 @@ def get_settings() -> Settings:
             )
         ),
         cors_origins=_parse_cors_origins(origins),
-        amap_web_service_key=os.getenv(
-            "SPRINGGIS_AMAP_WEB_SERVICE_KEY",
-            ini.get("geocoding", "amap_web_service_key", fallback=""),
-        ).strip(),
+        amap_web_service_key=_read_amap_web_service_key(ini),
     )
 

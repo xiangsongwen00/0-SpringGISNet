@@ -27,6 +27,7 @@
       </view>
       <view class="module-tabs">
         <view :class="['module-tab', { active: activeModule === 'track' }]" @click="activeModule = 'track'">实时轨迹</view>
+        <view :class="['module-tab', { active: activeModule === 'map' }]" @click="activeModule = 'map'">三维地图</view>
         <view :class="['module-tab', { active: activeModule === 'permission' }]" @click="activeModule = 'permission'">角色与权限</view>
       </view>
       <view v-if="activeModule === 'track'" class="panel tracking-panel">
@@ -47,6 +48,12 @@
         <button v-if="!locationState.running" class="primary" :disabled="!terminalBound || busy" @click="startLocationTracking">开启轨迹记录</button>
         <button v-else class="tracking-stop" :disabled="busy" @click="stopLocationTracking">停止轨迹记录</button>
         <text class="privacy">Android 首次开启会请求定位权限。1 秒频率耗电最高；默认 2 秒。系统省电策略或后台限制可能降低实际采样频率。</text>
+      </view>
+      <view v-if="activeModule === 'map'" class="panel engine-panel">
+        <text class="section-title">春秋 GIS 三维地图</text>
+        <text class="description">APK 内部直接运行 SpringAndAutumnGIS，不依赖 PC 页面。地图工具支持触控测量、绘制、视角复位、经纬网和底图切换；轨迹产生位置后会在地球上标记当前终端。</text>
+        <SpringGisMap :point="locationState.lastPoint" />
+        <text class="privacy">未配置 APK 独立底图时仍显示 WGS84 三维地球与经纬网。天地图或自有 XYZ 服务只在本工程 config/apk.env.json 中配置。</text>
       </view>
       <view v-show="activeModule === 'permission'">
       <view class="panel">
@@ -99,6 +106,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
+import SpringGisMap from '../../components/SpringGisMap.vue';
 import { confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, LOCATION_INTERVALS, login, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
 import { ensureTerminalKey, getNativeKeyDiagnostics, isNativeKeyAvailable, signTerminalPayload } from '../../services/keystore';
 import { LocationTracker, type LocationTrackerState } from '../../services/locationTracker';
@@ -111,7 +119,7 @@ const busy = ref(false);
 const error = ref('');
 const session = ref<AuthSession | null>(null);
 const terminalBound = ref(false);
-const activeModule = ref<'track' | 'permission'>('track');
+const activeModule = ref<'track' | 'map' | 'permission'>('track');
 const locationIntervals = [...LOCATION_INTERVALS];
 const locationInterval = ref<LocationInterval>(2);
 const locationIntervalIndex = ref(1);
@@ -402,4 +410,6 @@ onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerif
 .location-card text:first-child { font-family: monospace; font-size: 29rpx; font-weight: 700; }
 .location-card text:last-child { color: #9b6a4d; font-size: 23rpx; }
 .tracking-stop { margin-top: 28rpx; border: 1rpx solid #b35a36; border-radius: 999rpx; background: white; color: #9e4427; font-size: 29rpx; }
+.engine-panel { padding: 24rpx; background: linear-gradient(155deg,#f7fcfd,#fff); }
+.engine-panel > .description { margin-bottom: 24rpx; }
 </style>
