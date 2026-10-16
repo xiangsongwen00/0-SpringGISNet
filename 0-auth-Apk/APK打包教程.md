@@ -55,22 +55,45 @@ E:\0-SpringGISNet\0-auth-Apk
 
 ```json
 {
-  "h5DebugServer": {
-    "host": "0.0.0.0",
-    "port": 5174,
-    "strictPort": true,
-    "previewPort": 4174
+  "schemaVersion": 1,
+  "development": {
+    "h5Server": {
+      "host": "0.0.0.0",
+      "port": 5174,
+      "previewPort": 4174,
+      "strictPort": true
+    },
+    "apiProxyTarget": "http://8.137.36.114:8080"
   },
   "api": {
-    "h5DebugBaseUrl": "/api/v1",
-    "h5DevelopmentProxyTarget": "http://8.137.36.114:8080",
-    "androidBaseUrl": "http://8.137.36.114:8080/api/v1"
+    "h5BaseUrl": "/api/v1",
+    "androidBaseUrl": "http://8.137.36.114:8080/api/v1",
+    "requestTimeoutMs": 15000
+  },
+  "map": {
+    "terrainEnabled": true,
+    "showLodGrid": true,
+    "maxPixelRatio": 1.5,
+    "toolbarBottomOffset": 58,
+    "initialView": {
+      "longitude": 106.55,
+      "latitude": 29.61,
+      "altitude": 18000000
+    },
+    "lod": {
+      "minLevel": 2,
+      "maxLevel": 22,
+      "maxTiles": 120
+    }
   }
 }
 ```
 
-- H5 请求 `/api/v1`，Vite 用 `h5DevelopmentProxyTarget` 转发。
+- `development` 只控制 H5 开发服务器和代理，不进入正式业务语义。
+- H5 请求 `/api/v1`，Vite 用 `development.apiProxyTarget` 转发。
 - 真机不经过 Vite，直接使用 `androidBaseUrl`，所以必须包含 `/api/v1`。
+- `api.requestTimeoutMs` 同时约束 H5 和 App API 请求超时。
+- `map` 只保存引擎运行参数；底图、Style、DEM 地址和 Token 全部属于 `config/token.json`。
 - 真机中的 `127.0.0.1` 是手机自己，不能指向电脑或服务器。
 - Android 官方模拟器访问开发电脑可用 `10.0.2.2`；真机访问电脑使用同一局域网的电脑 IPv4 地址。
 - 当前公网 HTTP 只适合联调。正式发布应换成可信域名 HTTPS，并重新打包。
@@ -134,13 +157,29 @@ npm run build:h5
 该脚本只导入允许进入客户端的地图字段，并排除 `serverToken` 和 Mapbox 服务端令牌；它不会建立同步关系，导入后 PC 与 APK 两份文件完全独立。`config/token.json` 已被 Git 忽略，字段格式见 `config/token.example.json`。发布前仅放允许随客户端分发、已限制来源和配额的公开 Key，严禁放服务端私钥。
 
 - `tianditu.token`：显示“天地图影像”。
-- `google.satelliteUrl`：显示“Google 卫星影像”，必须填写你有权使用的 XYZ 瓦片模板；项目不内置未经授权的 Google 瓦片端点。
+- `demo.basemaps`：Google 卫星及其他自定义 XYZ/TMS/Style 底图统一放在这里。
 - `demo.terrain`：优先使用自定义 Terrain-RGB TileJSON 或 URL 模板。
 - `maptiler.key`：未配置自定义地形时，使用 MapTiler Terrain-RGB。
 - `geovis.terrainToken`：前两项为空时，作为 GeoVIS Terrain-RGB 后备。
 - `demo.defaultBaseMap`：可填 `tianditu-imagery` 或 `google-satellite`。
 
-`config/apk.env.json` 的 `map` 段只保留非敏感运行参数、自定义 `xyzUrl` 和 `terrainEnabled` 总开关。高德 Web 服务 Key 仍只放 Python 服务端，用于 IP 定位和经纬度地名反查，不能作为底图 Key 打进 APK。
+Google 卫星配置示例（必须替换为你有权使用的服务地址）：
+
+```json
+{
+  "id": "google-satellite",
+  "name": "Google 卫星影像",
+  "type": "xyz",
+  "url": "https://你的授权瓦片服务/{z}/{x}/{y}",
+  "scheme": "xyz",
+  "minLevel": 0,
+  "maxLevel": 20,
+  "levelOffset": -1.7,
+  "attribution": "Google Satellite"
+}
+```
+
+把该对象加入 `demo.basemaps` 数组即可。`config/apk.env.json` 的 `map` 段只保留非敏感引擎运行参数和 `terrainEnabled` 总开关。高德 Web 服务 Key 仍只放 Python 服务端，用于 IP 定位和经纬度地名反查，不能作为底图 Key 打进 APK。
 
 Keystore UTS 插件位于 `uni_modules/springgis-keystore`。修改 UTS 插件、manifest 权限、原生模块或 AppID 后，旧自定义基座不会自动拥有新能力，必须重新制作自定义基座或重新云打包。
 
@@ -221,6 +260,9 @@ adb install -r .\path\to\springgis.apk
 - 应用名、图标、版本正确。
 - 注册必须填写两个不同安全问题与答案，中文用户名可用。
 - 密码登录、刷新、退出正常。
+- 杀死并重新打开 APK 可自动恢复登录；成功使用会把 30 天期限重新顺延，模拟服务端 `401` 后才回到密码登录。
+- 断网启动时保留免登录凭据并允许重试，不得因为一次网络失败清除会话。
+- 主动退出会撤销服务端 Refresh Token 并清除本机存储；应用不保存密码，也不要求指纹。
 - 首次绑定需要密码和首次绑定授权码；Keystore 公钥生成并提交成功。
 - 六位快速登录验证码在规定周期内轮换，PC/APK 的方向符合业务设计。
 - 非首次查看绑定/迁移授权码需密码和安全问题验证。

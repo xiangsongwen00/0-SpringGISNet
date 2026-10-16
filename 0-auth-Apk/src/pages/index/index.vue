@@ -9,15 +9,22 @@
       </view>
     </view>
 
-    <view v-if="!session" class="panel login-panel">
+    <view v-if="restoringSession" class="panel login-panel session-restoring">
+      <text class="eyebrow">SESSION RESTORE</text>
+      <text class="heading">正在恢复登录</text>
+      <text class="description">正在使用本机保存的会话凭据验证，不读取密码、指纹或其他生物信息。</text>
+    </view>
+
+    <view v-else-if="!session" class="panel login-panel">
       <text class="eyebrow">SPRINGAUTUMN TRACK</text>
       <text class="heading">登录人生轨迹</text>
       <text class="description">登录后可自行开启位置轨迹。不开启时不读取位置；不读取短信、通讯录、IMEI、MAC 或硬件序列号。</text>
       <view class="field"><text>用户名</text><input v-model.trim="username" maxlength="32" placeholder="请输入用户名" /></view>
       <view class="field"><text>密码</text><input v-model="password" password maxlength="128" placeholder="请输入密码" /></view>
       <text v-if="error" class="error">{{ error }}</text>
+      <button v-if="hasSavedSession" class="secondary" :loading="busy" :disabled="busy" @click="restorePersistedSession">重试免登录</button>
       <button class="primary" :loading="busy" :disabled="busy" @click="signIn">登录</button>
-      <text class="privacy">本应用不提供注册。请先在官网创建账户，再在此处绑定授权终端。</text>
+      <text class="privacy">成功使用后会话自动续期；连续 30 天未使用才需要重新登录。本应用不保存密码，不要求指纹。请先在官网创建账户，再在此处绑定授权终端。</text>
     </view>
 
     <template v-else>
@@ -53,7 +60,7 @@
         <text class="section-title">春秋 GIS 三维地图</text>
         <text class="description">APK 内部直接运行 SpringAndAutumnGIS，不依赖 PC 页面。地图工具支持触控测量、绘制、视角复位、经纬网和底图切换；轨迹产生位置后会在地球上标记当前终端。</text>
         <SpringGisMap :point="locationState.lastPoint" />
-        <text class="privacy">未配置 APK 独立底图时仍显示 WGS84 三维地球与经纬网。天地图或自有 XYZ 服务只在本工程 config/apk.env.json 中配置。</text>
+        <text class="privacy">未配置 APK 独立底图时仍显示 WGS84 三维地球与经纬网。天地图、Google 卫星或自有地图服务统一在本工程 config/token.json 中配置。</text>
       </view>
       <view v-show="activeModule === 'permission'">
       <view class="panel">
@@ -107,9 +114,10 @@
 import { onUnmounted, ref, watch } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import SpringGisMap from '../../components/SpringGisMap.vue';
-import { confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, LOCATION_INTERVALS, login, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
+import { ApiError, confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, LOCATION_INTERVALS, login, logout as logoutApi, refreshLogin, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
 import { ensureTerminalKey, getNativeKeyDiagnostics, isNativeKeyAvailable, signTerminalPayload } from '../../services/keystore';
 import { LocationTracker, type LocationTrackerState } from '../../services/locationTracker';
+import { clearRefreshSession, loadRefreshToken, saveRefreshSession } from '../../services/sessionStorage';
 
 const username = ref('');
 const password = ref('');
@@ -118,6 +126,8 @@ const bindingCode = ref('');
 const busy = ref(false);
 const error = ref('');
 const session = ref<AuthSession | null>(null);
+const restoringSession = ref(true);
+const hasSavedSession = ref(Boolean(loadRefreshToken()));
 const terminalBound = ref(false);
 const activeModule = ref<'track' | 'map' | 'permission'>('track');
 const locationIntervals = [...LOCATION_INTERVALS];
@@ -140,19 +150,103 @@ let quickExpiresAt = 0;
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 let revokeVerificationTimer: ReturnType<typeof setInterval> | null = null;
 let revokeVerificationExpiresAt = 0;
+let accessExpiresAt = 0;
+let sessionRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let sessionRefreshPromise: Promise<boolean> | null = null;
+let authGeneration = 0;
 
 watch(bindingCode, (value) => { const normalized = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12); if (normalized !== value) bindingCode.value = normalized; });
+
+function clearSessionRefreshTimer() {
+  if (sessionRefreshTimer !== null) clearTimeout(sessionRefreshTimer);
+  sessionRefreshTimer = null;
+}
+
+function resetLocalSession(removeStoredSession = true) {
+  authGeneration += 1;
+  locationTracker?.stop(); locationTracker = null;
+  clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer();
+  session.value = null; accessExpiresAt = 0; terminalBound.value = false;
+  quickCode.value = ''; bindingCode.value = ''; migrationCode.value = '';
+  migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = [];
+  revokeAuthorizationCode.value = ''; revokeVerificationCode.value = '';
+  locationState.value = { running: false, lastPoint: null, lastUploadedAt: null, error: '' };
+  if (removeStoredSession) {
+    clearRefreshSession();
+    hasSavedSession.value = false;
+  }
+}
+
+function applySession(authenticated: AuthSession) {
+  session.value = authenticated;
+  locationTracker?.setAccessToken(authenticated.access_token);
+  saveRefreshSession(authenticated);
+  hasSavedSession.value = Boolean(authenticated.refresh_token);
+  accessExpiresAt = Date.now() + authenticated.expires_in * 1000;
+  clearSessionRefreshTimer();
+  const refreshDelay = Math.max(30_000, authenticated.expires_in * 1000 - 60_000);
+  sessionRefreshTimer = setTimeout(() => void refreshCurrentSession(false), refreshDelay);
+}
+
+async function initializeAuthenticatedSession(authenticated: AuthSession) {
+  await attachExistingTerminal(authenticated);
+  await refreshSecurityQuestions(authenticated);
+  await restoreLocationTracking(authenticated);
+}
+
+async function refreshCurrentSession(initialize: boolean): Promise<boolean> {
+  if (sessionRefreshPromise) return sessionRefreshPromise;
+  const refreshToken = session.value?.refresh_token || loadRefreshToken();
+  if (!refreshToken) return false;
+  const generation = authGeneration;
+  const operation = (async () => {
+    try {
+      const authenticated = await refreshLogin(refreshToken);
+      if (generation !== authGeneration) return false;
+      applySession(authenticated);
+      if (initialize) await initializeAuthenticatedSession(authenticated);
+      error.value = '';
+      return true;
+    } catch (reason) {
+      if (generation !== authGeneration) return false;
+      if (reason instanceof ApiError && reason.statusCode === 401) {
+        resetLocalSession(true);
+        error.value = '免登录已过期，请重新登录';
+      } else {
+        // Network outages must not destroy a still-valid 30-day refresh token.
+        hasSavedSession.value = true;
+        error.value = '暂时无法连接服务器，免登录凭据已保留，可稍后重试';
+        clearSessionRefreshTimer();
+        sessionRefreshTimer = setTimeout(() => void refreshCurrentSession(initialize), 60_000);
+      }
+      return false;
+    }
+  })();
+  sessionRefreshPromise = operation;
+  try { return await operation; }
+  finally { if (sessionRefreshPromise === operation) sessionRefreshPromise = null; }
+}
+
+async function restorePersistedSession() {
+  const refreshToken = loadRefreshToken();
+  hasSavedSession.value = Boolean(refreshToken);
+  if (!refreshToken) { restoringSession.value = false; return; }
+  restoringSession.value = true;
+  busy.value = true;
+  try { await refreshCurrentSession(true); }
+  finally { restoringSession.value = false; busy.value = false; }
+}
 
 async function signIn() {
   error.value = '';
   if (!username.value || !password.value) { error.value = '请输入用户名和密码'; return; }
+  authGeneration += 1;
+  clearSessionRefreshTimer();
   busy.value = true;
   try {
     const authenticated = await login(username.value, password.value);
-    session.value = authenticated; password.value = '';
-    await attachExistingTerminal(authenticated);
-    await refreshSecurityQuestions(authenticated);
-    await restoreLocationTracking(authenticated);
+    applySession(authenticated); password.value = '';
+    await initializeAuthenticatedSession(authenticated);
   }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '登录失败'; }
   finally { busy.value = false; }
@@ -372,10 +466,32 @@ async function syncRemoteState() {
   }
 }
 
-function signOut() { locationTracker?.stop(); locationTracker = null; clearQuickTimer(); clearRevokeVerificationTimer(); if (statusTimer !== null) clearInterval(statusTimer); statusTimer = null; session.value = null; terminalBound.value = false; quickCode.value = ''; bindingCode.value = ''; migrationCode.value = ''; migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = []; revokeAuthorizationCode.value = ''; revokeVerificationCode.value = ''; locationState.value = { running: false, lastPoint: null, lastUploadedAt: null, error: '' }; }
-onShow(() => void syncRemoteState());
+async function signOut() {
+  const refreshToken = session.value?.refresh_token || loadRefreshToken();
+  resetLocalSession(true);
+  error.value = '';
+  if (refreshToken) {
+    try { await logoutApi(refreshToken); }
+    catch (reason) { console.info('[auth-logout]', reason instanceof Error ? reason.message : String(reason)); }
+  }
+}
+
+async function resumeSession() {
+  if (restoringSession.value) return;
+  if (!session.value) {
+    if (loadRefreshToken()) await restorePersistedSession();
+    return;
+  }
+  if (Date.now() >= accessExpiresAt - 60_000) {
+    if (!await refreshCurrentSession(false)) return;
+  }
+  await syncRemoteState();
+}
+
+void restorePersistedSession();
+onShow(() => void resumeSession());
 statusTimer = setInterval(() => void syncRemoteState(), 10000);
-onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerificationTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
+onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
 </script>
 
 <style scoped>

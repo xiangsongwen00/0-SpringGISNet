@@ -6,19 +6,19 @@ import apkEnvironment from "./config/apk.env.json";
 export default defineConfig({
   plugins: [uni()],
   server: {
-    host: apkEnvironment.h5DebugServer.host,
-    port: apkEnvironment.h5DebugServer.port,
-    strictPort: apkEnvironment.h5DebugServer.strictPort,
+    host: apkEnvironment.development.h5Server.host,
+    port: apkEnvironment.development.h5Server.port,
+    strictPort: apkEnvironment.development.h5Server.strictPort,
     proxy: {
       '/api': {
-        target: apkEnvironment.api.h5DevelopmentProxyTarget,
+        target: apkEnvironment.development.apiProxyTarget,
         changeOrigin: true,
       },
     },
   },
   preview: {
-    host: apkEnvironment.h5DebugServer.host,
-    port: apkEnvironment.h5DebugServer.previewPort,
-    strictPort: apkEnvironment.h5DebugServer.strictPort,
+    host: apkEnvironment.development.h5Server.host,
+    port: apkEnvironment.development.h5Server.previewPort,
+    strictPort: apkEnvironment.development.h5Server.strictPort,
   },
 });

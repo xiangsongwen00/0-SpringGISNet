@@ -3,10 +3,17 @@ import apkEnvironment from '../../config/apk.env.json';
 let configuredApiBase = apkEnvironment.api.androidBaseUrl;
 
 // #ifdef H5
-configuredApiBase = apkEnvironment.api.h5DebugBaseUrl;
+configuredApiBase = apkEnvironment.api.h5BaseUrl;
 // #endif
 
 const API_BASE = configuredApiBase.replace(/\/$/, '');
+
+export class ApiError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 export interface AuthUser { user_uuid: string; username: string; created_at: string }
 export interface AuthSession { access_token: string; refresh_token: string | null; expires_in: number; user: AuthUser }
@@ -31,19 +38,28 @@ function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', dat
       url: `${API_BASE}${path}`,
       method,
       data,
+      timeout: apkEnvironment.api.requestTimeoutMs,
       header: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) { resolve(response.data as T); return; }
         const body = response.data as { detail?: string } | undefined;
-        reject(new Error(body?.detail || `请求失败 (${response.statusCode})`));
+        reject(new ApiError(body?.detail || `请求失败 (${response.statusCode})`, response.statusCode));
       },
-      fail(reason) { reject(new Error(reason.errMsg || '无法连接认证服务器')); }
+      fail(reason) { reject(new ApiError(reason.errMsg || '无法连接认证服务器', 0)); }
     });
   });
 }
 
 export function login(username: string, password: string): Promise<AuthSession> {
   return request('/auth/login', 'POST', { username, password, client_type: 'auth_apk' });
+}
+
+export function refreshLogin(refreshToken: string): Promise<AuthSession> {
+  return request('/auth/refresh', 'POST', { refresh_token: refreshToken });
+}
+
+export function logout(refreshToken: string): Promise<{ message: string }> {
+  return request('/auth/logout', 'POST', { refresh_token: refreshToken });
 }
 
 export function startTerminalBinding(accessToken: string, publicKey: string, authorizationCode: string): Promise<TerminalBindChallenge> {

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 
-from app.database import Base, engine
+from app.database import Base, SessionLocal, engine
 from app.main import app
+from app.models import AuthSession, utc_now
+from app.security import hash_token
 
 CONSENT = {
     "terms_accepted": True,
@@ -94,6 +98,61 @@ async def _register_login_refresh_logout_flow() -> None:
 
 def test_registration_rejects_identity_fields_and_weak_inputs() -> None:
     asyncio.run(_registration_rejects_identity_fields_and_weak_inputs())
+
+
+def test_apk_refresh_slides_thirty_days_and_preserves_terminal_session() -> None:
+    asyncio.run(_apk_refresh_slides_thirty_days_and_preserves_terminal_session())
+
+
+async def _apk_refresh_slides_thirty_days_and_preserves_terminal_session() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        registered = await client.post(
+            "/api/v1/users/register",
+            json={
+                "username": "apk_remembered",
+                "password": "a-strong-passphrase",
+                "client_type": "auth_apk",
+                **CONSENT,
+            },
+        )
+        assert registered.status_code == 201, registered.text
+        original = registered.json()
+
+        with SessionLocal() as db:
+            stored = db.scalar(
+                select(AuthSession).where(
+                    AuthSession.refresh_token_hash == hash_token(original["refresh_token"])
+                )
+            )
+            assert stored is not None
+            session_id = stored.id
+            stored.terminal_id = 987654
+            stored.expires_at = utc_now() + timedelta(minutes=1)
+            db.commit()
+
+        refreshed = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": original["refresh_token"]},
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        rotated = refreshed.json()
+        assert rotated["refresh_token"] != original["refresh_token"]
+
+        with SessionLocal() as db:
+            stored = db.get(AuthSession, session_id)
+            assert stored is not None
+            assert stored.terminal_id == 987654
+            expires_at = stored.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=utc_now().tzinfo)
+            assert expires_at > utc_now() + timedelta(days=29)
+            assert db.scalar(select(func.count()).select_from(AuthSession)) == 1
+
+        replay = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": original["refresh_token"]},
+        )
+        assert replay.status_code == 401
 
 
 async def _registration_rejects_identity_fields_and_weak_inputs() -> None:

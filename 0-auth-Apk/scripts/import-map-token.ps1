@@ -8,19 +8,40 @@ $sourcePath = (Resolve-Path -LiteralPath $Source).Path
 $destinationPath = [System.IO.Path]::GetFullPath($Destination)
 $sourceConfig = Get-Content -Raw -Encoding utf8 -LiteralPath $sourcePath | ConvertFrom-Json
 
-# Only public, browser-safe map fields may enter an APK. In particular, do not
-# copy serverToken, mapbox.serverToken, database credentials, or API secrets.
+# Keep the same public resource schema as the SDK token.example.json while
+# excluding serverToken, mapbox.serverToken and every unknown top-level field.
+$sourceDemo = $sourceConfig.demo
+$sourceTerrain = $sourceDemo.terrain
+$safeBasemaps = @()
+foreach ($item in @($sourceDemo.basemaps)) {
+    if ($null -eq $item) { continue }
+    $safeItem = [ordered]@{
+        id = [string]$item.id
+        name = [string]$item.name
+        type = [string]$item.type
+    }
+    if ($item.type -eq 'xyz') {
+        $safeItem.url = [string]$item.url
+        $safeItem.scheme = if ($item.scheme -eq 'tms') { 'tms' } else { 'xyz' }
+        if ($null -ne $item.minLevel) { $safeItem.minLevel = [int]$item.minLevel }
+        $safeItem.maxLevel = if ($null -ne $item.maxLevel) { [int]$item.maxLevel } else { 20 }
+        $safeItem.levelOffset = if ($null -ne $item.levelOffset) { [double]$item.levelOffset } else { -1.7 }
+        $safeItem.attribution = [string]$item.attribution
+    } elseif ($item.type -eq 'vector-style') {
+        $safeItem.style = [string]$item.style
+        $safeItem.sourceId = [string]$item.sourceId
+        $safeItem.symbols = $item.symbols -ne $false
+        $safeItem.levelOffset = if ($null -ne $item.levelOffset) { [double]$item.levelOffset } else { -1.7 }
+        $safeItem.attribution = [string]$item.attribution
+    } else {
+        continue
+    }
+    $safeBasemaps += [pscustomobject]$safeItem
+}
+
 $apkConfig = [ordered]@{
     tianditu = [ordered]@{
         token = [string]$sourceConfig.tianditu.token
-    }
-    google = [ordered]@{
-        satelliteUrl = [string]$sourceConfig.google.satelliteUrl
-        scheme = if ($sourceConfig.google.scheme) { [string]$sourceConfig.google.scheme } else { 'xyz' }
-        minLevel = if ($null -ne $sourceConfig.google.minLevel) { [int]$sourceConfig.google.minLevel } else { 0 }
-        maxLevel = if ($null -ne $sourceConfig.google.maxLevel) { [int]$sourceConfig.google.maxLevel } else { 20 }
-        levelOffset = if ($null -ne $sourceConfig.google.levelOffset) { [double]$sourceConfig.google.levelOffset } else { -1.7 }
-        attribution = if ($sourceConfig.google.attribution) { [string]$sourceConfig.google.attribution } else { 'Google Satellite (authorised source)' }
     }
     maptiler = [ordered]@{
         key = [string]$sourceConfig.maptiler.key
@@ -28,16 +49,21 @@ $apkConfig = [ordered]@{
     geovis = [ordered]@{
         terrainToken = [string]$sourceConfig.geovis.terrainToken
     }
+    osm = [ordered]@{
+        rasterUrl = [string]$sourceConfig.osm.rasterUrl
+        styleUrl = [string]$sourceConfig.osm.styleUrl
+        attribution = if ($sourceConfig.osm.attribution) { [string]$sourceConfig.osm.attribution } else { '© OpenStreetMap contributors' }
+    }
     demo = [ordered]@{
-        defaultBaseMap = if ($sourceConfig.demo.defaultBaseMap) { [string]$sourceConfig.demo.defaultBaseMap } else { 'tianditu-imagery' }
+        defaultBaseMap = [string]$sourceDemo.defaultBaseMap
+        basemaps = $safeBasemaps
         terrain = [ordered]@{
-            tileJsonUrl = [string]$sourceConfig.demo.terrain.tileJsonUrl
-            urlTemplates = @($sourceConfig.demo.terrain.urlTemplates)
-            encoding = if ($sourceConfig.demo.terrain.encoding) { [string]$sourceConfig.demo.terrain.encoding } else { 'mapbox' }
-            scheme = if ($sourceConfig.demo.terrain.scheme) { [string]$sourceConfig.demo.terrain.scheme } else { 'xyz' }
-            minLevel = if ($null -ne $sourceConfig.demo.terrain.minLevel) { [int]$sourceConfig.demo.terrain.minLevel } else { 0 }
-            maxLevel = if ($null -ne $sourceConfig.demo.terrain.maxLevel) { [int]$sourceConfig.demo.terrain.maxLevel } else { 14 }
-            attribution = if ($sourceConfig.demo.terrain.attribution) { [string]$sourceConfig.demo.terrain.attribution } else { '用户提供 DEM' }
+            tileJsonUrl = [string]$sourceTerrain.tileJsonUrl
+            urlTemplates = @($sourceTerrain.urlTemplates)
+            encoding = if ($sourceTerrain.encoding -eq 'terrarium') { 'terrarium' } else { 'mapbox' }
+            scheme = if ($sourceTerrain.scheme -eq 'tms') { 'tms' } else { 'xyz' }
+            maxLevel = if ($null -ne $sourceTerrain.maxLevel) { [int]$sourceTerrain.maxLevel } else { 14 }
+            attribution = if ($sourceTerrain.attribution) { [string]$sourceTerrain.attribution } else { '用户提供 DEM' }
         }
     }
 }
@@ -48,4 +74,4 @@ if (-not (Test-Path -LiteralPath $destinationDirectory)) {
 }
 $json = $apkConfig | ConvertTo-Json -Depth 8
 [System.IO.File]::WriteAllText($destinationPath, $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-Write-Host 'APK map token configuration imported. Server-only fields were excluded.'
+Write-Host 'APK map token configuration imported with the standard public resource schema.'

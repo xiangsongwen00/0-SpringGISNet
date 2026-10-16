@@ -33,6 +33,7 @@ def issue_session(db: Session, user: User, client_type: str) -> IssuedTokens:
         client_type=client_type,
         access_expires_at=now + timedelta(minutes=settings.access_token_minutes),
         expires_at=now + timedelta(days=settings.refresh_token_days),
+        last_seen_at=now,
     )
     db.add(session)
     db.flush()
@@ -65,6 +66,27 @@ def rotate_refresh_token(db: Session, refresh_token: str) -> tuple[IssuedTokens,
     if session is None or session.user.status != 1:
         return None
 
-    session.revoked_at = utc_now()
-    return issue_session(db, session.user, session.client_type), session.user
+    # Rotate in place so an APK keeps its terminal association and frequent
+    # access-token renewals do not create an unbounded number of session rows.
+    # A successful refresh is activity: the inactivity deadline slides forward
+    # by refresh_token_days. The replaced token becomes unusable immediately.
+    settings = get_settings()
+    now = utc_now()
+    access_token = make_token(32)
+    next_refresh_token = make_token(48)
+    session.access_token_hash = hash_token(access_token)
+    session.refresh_token_hash = hash_token(next_refresh_token)
+    session.access_expires_at = now + timedelta(minutes=settings.access_token_minutes)
+    session.expires_at = now + timedelta(days=settings.refresh_token_days)
+    session.last_seen_at = now
+    db.flush()
+    return (
+        IssuedTokens(
+            access_token=access_token,
+            refresh_token=next_refresh_token,
+            expires_in=settings.access_token_minutes * 60,
+            session=session,
+        ),
+        session.user,
+    )
 

@@ -319,7 +319,7 @@ Token 缺失、过期或已撤销返回 `401`。
 {}
 ```
 
-桌面客户端传入安全存储的 Refresh Token：
+桌面客户端和原生 APK 传入本机应用沙箱中保存的 Refresh Token：
 
 ```json
 {
@@ -327,7 +327,9 @@ Token 缺失、过期或已撤销返回 `401`。
 }
 ```
 
-成功响应 `200`，返回新的 Access Token，并轮换 Refresh Token。旧 Refresh Token 再次使用返回 `401`。
+成功响应 `200`，返回新的 Access Token，并轮换 Refresh Token。旧 Refresh Token 再次使用返回 `401`。每次成功刷新都把会话失效时间重新顺延 `security.refresh_token_days`（默认 30 天），因此连续 30 天没有成功使用/刷新才要求重新输入密码。刷新在原 Session 上完成，保留 APK 的终端绑定，不额外堆积 Session 行。
+
+APK 只持久化 Refresh Token，不保存密码、Access Token、指纹模板或其他生物信息。启动、回到前台以及 Access Token 即将过期时自动刷新；网络暂时不可用时保留本地凭据，只有服务端明确返回 `401` 才清除免登录状态。
 
 ## 10. 退出登录
 
@@ -355,7 +357,7 @@ Token 缺失、过期或已撤销返回 `401`。
 }
 ```
 
-退出会撤销服务端 Session，并清除浏览器 Refresh Cookie。客户端应同步删除本地 Access Token。
+退出会撤销服务端 Session，并清除浏览器 Refresh Cookie。APK 同步删除本地 Refresh Token 和内存中的 Access Token。
 
 ## 11. 错误响应
 

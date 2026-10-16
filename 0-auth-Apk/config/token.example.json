@@ -2,28 +2,25 @@
   "tianditu": {
     "token": "YOUR_PUBLIC_TIANDITU_KEY"
   },
-  "google": {
-    "satelliteUrl": "",
-    "scheme": "xyz",
-    "minLevel": 0,
-    "maxLevel": 20,
-    "levelOffset": -1.7,
-    "attribution": "Google Satellite (authorised source)"
-  },
   "maptiler": {
     "key": "YOUR_PUBLIC_MAPTILER_KEY"
   },
   "geovis": {
     "terrainToken": ""
   },
+  "osm": {
+    "rasterUrl": "",
+    "styleUrl": "",
+    "attribution": "© OpenStreetMap contributors"
+  },
   "demo": {
-    "defaultBaseMap": "tianditu-imagery",
+    "defaultBaseMap": "",
+    "basemaps": [],
     "terrain": {
       "tileJsonUrl": "",
       "urlTemplates": [],
       "encoding": "mapbox",
       "scheme": "xyz",
-      "minLevel": 0,
       "maxLevel": 14,
       "attribution": "用户提供 DEM"
     }

@@ -16,7 +16,7 @@ export class LocationTracker {
   private state: LocationTrackerState = { running: false, lastPoint: null, lastUploadedAt: null, error: '' };
 
   constructor(
-    private readonly accessToken: string,
+    private accessToken: string,
     private interval: LocationInterval,
     private readonly listener: Listener,
   ) {}
@@ -41,6 +41,10 @@ export class LocationTracker {
       if (this.timer !== null) clearTimeout(this.timer);
       this.schedule();
     }
+  }
+
+  setAccessToken(accessToken: string): void {
+    this.accessToken = accessToken;
   }
 
   private schedule(): void {
