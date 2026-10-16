@@ -1,14 +1,24 @@
 import { TerrainRgbProvider, Viewer } from 'spring-and-autumn-gis';
 import apkEnvironment from '../../config/apk.env.json';
 import resourceConfig from '../../config/token.json';
+import { currentLocationIconUrl, playbackPointIconUrl } from './mapIconData.js';
 
 const LOCATION_ENTITY_ID = 'springgis-current-device';
 const TRACK_ENTITY_ID = 'springgis-history-track';
 const PLAYBACK_ENTITY_ID = 'springgis-track-playback';
+// Android App WebViews cannot fetch file:///static/... URLs. Both images are
+// smaller than Vite's inline limit, so importing them embeds data URLs in the
+// RenderJS bundle and keeps entity texture loading independent of file://.
+const CURRENT_LOCATION_ICON_URL = currentLocationIconUrl;
+const PLAYBACK_POINT_ICON_URL = playbackPointIconUrl;
 // Viewer/Three.js instances must stay outside Vue/uni-app reactive data.
 // Proxying the SDK object graph makes Map values non-cloneable in Android's
 // WebView and breaks drawing with a structuredClone DataCloneError.
 let viewerInstance = null;
+let viewportCleanup = null;
+let viewportTimers = [];
+let cameraFeedbackTimer = null;
+let lastFeedbackPitch = null;
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -89,6 +99,26 @@ export default {
         const button = event.target?.closest?.('button[data-tool]');
         const tool = button?.dataset?.tool;
         if (!tool) return;
+        if (tool === 'home') {
+          // The stock reset restores a camera matrix captured before some
+          // Android orientation/layout changes. Fly to the configured initial
+          // view instead so the globe target is explicitly screen-centred.
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          const map = apkEnvironment.map || {};
+          this.resizeViewer(container);
+          viewerInstance?.flyTo({
+            longitude: number(map.initialView?.longitude, 106.55),
+            latitude: number(map.initialView?.latitude, 29.61),
+            altitude: number(map.initialView?.altitude, 18000000),
+            pitch: -90,
+            heading: 0,
+            duration: 650,
+          });
+          this.reportStatus(container, '已回到居中的初始视角', 'success');
+          return;
+        }
         if (this.minimizedToolMode && tool === this.minimizedToolMode) {
           // Restore the exact existing panel. Do not call the SDK tool handler,
           // because rebuilding the same tool would cancel the active gesture.
@@ -183,6 +213,80 @@ export default {
       message.className = 'engine-failure';
       message.textContent = `三维引擎启动失败：${reason}`;
       container.append(message);
+    },
+    restoreEntitySafely(container, label, callback) {
+      try {
+        callback();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.reportStatus(container, `${label}恢复失败，基础地图继续运行：${reason}`, 'error');
+      }
+    },
+    resizeViewer(container) {
+      // GlobeEngine.resize() is also driven by ResizeObserver. Calling it here
+      // covers Android WebViews that delay or omit that observer notification
+      // while repeatedly switching portrait and landscape.
+      viewerInstance?.engine?.resize?.();
+      const activeButton = (container?.parentElement || container)?.querySelector?.('.sag-tools button[aria-pressed="true"]');
+      if (activeButton) this.positionToolPanel(container, activeButton);
+    },
+    scheduleViewportRefresh(container) {
+      for (const timer of viewportTimers) clearTimeout(timer);
+      viewportTimers = [0, 80, 240, 600].map((delay) => setTimeout(() => {
+        this.resizeViewer(container);
+      }, delay));
+    },
+    installViewportListeners(container) {
+      viewportCleanup?.();
+      const refresh = () => this.scheduleViewportRefresh(container);
+      window.addEventListener('resize', refresh);
+      window.addEventListener('orientationchange', refresh);
+      window.visualViewport?.addEventListener?.('resize', refresh);
+      viewportCleanup = () => {
+        window.removeEventListener('resize', refresh);
+        window.removeEventListener('orientationchange', refresh);
+        window.visualViewport?.removeEventListener?.('resize', refresh);
+        for (const timer of viewportTimers) clearTimeout(timer);
+        viewportTimers = [];
+        viewportCleanup = null;
+      };
+      refresh();
+    },
+    updatePitchFeedback(container, pitch) {
+      const normalized = Math.round(Math.max(0, Math.min(90, Math.abs(pitch))));
+      if (normalized === lastFeedbackPitch) return;
+      lastFeedbackPitch = normalized;
+
+      // Keep the RenderJS-side elements responsive even if the logical-layer
+      // bridge is briefly delayed during an Android orientation transition.
+      const shell = container?.parentElement || container;
+      const value = shell?.querySelector?.('.pitch-value');
+      const fill = shell?.querySelector?.('.pitch-track-fill');
+      const thumb = shell?.querySelector?.('.pitch-thumb');
+      const percent = normalized / 90 * 100;
+      if (value) value.textContent = `${normalized}°`;
+      if (fill) fill.style.height = `${percent}%`;
+      if (thumb) thumb.style.bottom = `calc(${percent}% - ${Math.max(1, thumb.offsetHeight / 2)}px)`;
+
+      // Synchronise Vue state without sending another pitch command back to
+      // the engine. This prevents a feedback loop while keeping the slider
+      // correct after gestures, flyTo, locate, home and playback camera moves.
+      this.$ownerInstance?.callMethod?.('syncPitchFromEngine', normalized);
+    },
+    startCameraFeedback(container) {
+      if (cameraFeedbackTimer !== null) clearInterval(cameraFeedbackTimer);
+      lastFeedbackPitch = null;
+      const sample = () => {
+        if (!viewerInstance) return;
+        try {
+          const pitch = Number(viewerInstance.getCameraViewState()?.pitch);
+          if (Number.isFinite(pitch)) this.updatePitchFeedback(container, pitch);
+        } catch {
+          // The viewer can be destroyed between an interval tick and this read.
+        }
+      };
+      sample();
+      cameraFeedbackTimer = setInterval(sample, 80);
     },
     buildBaseMaps() {
       const definitions = [];
@@ -372,6 +476,8 @@ export default {
           baseMapNames,
         });
         this.enhanceMobileToolbar(container);
+        this.installViewportListeners(container);
+        this.startCameraFeedback(container);
         const canvasReady = Boolean(container.querySelector?.('canvas'));
         const toolbarReady = Boolean(toolbarHost.querySelector?.('.sag-tools'));
         this.reportStatus(
@@ -379,9 +485,9 @@ export default {
           `基础球体${canvasReady ? '已创建' : '未检测到 Canvas'}，工具栏${toolbarReady ? '已创建' : '未创建'}`,
           canvasReady && toolbarReady ? 'success' : 'error',
         );
-        if (this.lastPayload) this.applyLocation(this.lastPayload, true);
-        if (this.lastTrackPayload) this.applyTrack(this.lastTrackPayload);
-        if (this.lastPlaybackPayload) this.applyPlayback(this.lastPlaybackPayload);
+        if (this.lastPayload) this.restoreEntitySafely(container, '当前位置', () => this.applyLocation(this.lastPayload, true));
+        if (this.lastTrackPayload) this.restoreEntitySafely(container, '轨迹线', () => this.applyTrack(this.lastTrackPayload));
+        if (this.lastPlaybackPayload) this.restoreEntitySafely(container, '回放位置', () => this.applyPlayback(this.lastPlaybackPayload));
         if (baseMap) {
           this.reportStatus(container, `地球与工具栏已就绪，正在加载底图 ${baseMap}`);
           viewerInstance.setBaseMap(baseMap).then(() => {
@@ -399,22 +505,22 @@ export default {
     },
     updateLocation(value) {
       this.lastPayload = value || '';
-      if (viewerInstance && value) this.applyLocation(value, false);
+      if (viewerInstance && value) this.restoreEntitySafely(this.resolveContainer(), '当前位置', () => this.applyLocation(value, false));
     },
     updateTrack(value) {
       this.lastTrackPayload = value || '';
-      if (viewerInstance) this.applyTrack(this.lastTrackPayload);
+      if (viewerInstance) this.restoreEntitySafely(this.resolveContainer(), '轨迹线', () => this.applyTrack(this.lastTrackPayload));
     },
     updatePlayback(value) {
       this.lastPlaybackPayload = value || '';
-      if (viewerInstance) this.applyPlayback(this.lastPlaybackPayload);
+      if (viewerInstance) this.restoreEntitySafely(this.resolveContainer(), '回放位置', () => this.applyPlayback(this.lastPlaybackPayload));
     },
     handleControl(value) {
       if (!value) return;
       let command;
       try { command = JSON.parse(value); } catch { return; }
       if (command.action === 'resize') {
-        window.dispatchEvent(new Event('resize'));
+        this.scheduleViewportRefresh(this.resolveContainer());
         return;
       }
       if (!viewerInstance) return;
@@ -481,6 +587,7 @@ export default {
         .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
         .map((point) => [point.longitude, point.latitude, Number.isFinite(point.altitude) ? point.altitude : 0]);
       if (positions.length < 2) return;
+      const isNewTrack = !viewerInstance.entities.has(TRACK_ENTITY_ID);
       const entity = {
         id: TRACK_ENTITY_ID,
         name: '最近三天历史轨迹',
@@ -488,13 +595,15 @@ export default {
         positions,
         heightReference: 'clamp-to-ground',
         groundOffset: 2,
-        symbol: { color: '#ff9f43', outlineColor: '#ffffff', outlineWidth: 2, width: 7, opacity: 0.92, occlusion: 'overlay' },
+        symbol: { color: '#25d9ff', width: 4, opacity: 0.96, occlusion: 'overlay' },
         properties: { source: 'android-history', pointCount: positions.length },
       };
       this.upsertEntity(entity);
-      const first = positions[0];
-      viewerInstance.flyTo({ longitude: first[0], latitude: first[1], altitude: 4000, pitch: -62, heading: 0, duration: 650 });
-      this.reportStatus(this.resolveContainer(), `已显示 ${positions.length} 个历史轨迹点`, 'success');
+      if (isNewTrack) {
+        const first = positions[0];
+        viewerInstance.flyTo({ longitude: first[0], latitude: first[1], altitude: 4000, pitch: -62, heading: 0, duration: 650 });
+        this.reportStatus(this.resolveContainer(), '轨迹回放已开始，路线将随回放位置逐步延伸', 'success');
+      }
     },
     applyPlayback(value) {
       let point;
@@ -510,7 +619,7 @@ export default {
         position: [point.longitude, point.latitude, Number.isFinite(point.altitude) ? point.altitude : 0],
         heightReference: 'clamp-to-ground',
         groundOffset: 4,
-        symbol: { color: '#00e5ff', outlineColor: '#ffffff', outlineWidth: 4, size: 30, shape: 'circle', occlusion: 'overlay' },
+        symbol: { color: '#ffffff', size: 32, icon: { url: PLAYBACK_POINT_ICON_URL, sourceHeading: 0 }, alignment: 'screen', occlusion: 'overlay' },
         label: { text: point.recordedAt ? new Date(point.recordedAt).toLocaleString() : '轨迹回放', color: '#ffffff', haloColor: '#0b2430', fontSize: 14, occlusion: 'overlay' },
         properties: { source: 'android-playback', recordedAt: point.recordedAt || null },
       };
@@ -528,12 +637,20 @@ export default {
         position,
         heightReference: 'clamp-to-ground',
         groundOffset: 1,
-        symbol: { color: '#ff9f43', outlineColor: '#ffffff', outlineWidth: 3, size: 24, shape: 'circle', occlusion: 'overlay' },
+        symbol: {
+          color: '#ffffff',
+          size: 36,
+          icon: { url: CURRENT_LOCATION_ICON_URL, sourceHeading: 0 },
+          heading: 0,
+          alignment: 'map',
+          occlusion: 'overlay',
+        },
         label: {
           text: point.accuracy ? `当前设备 · ±${Math.round(point.accuracy)}m` : '当前设备',
           color: '#ffffff',
           haloColor: '#173342',
           fontSize: 15,
+          offset: [0, -38],
           occlusion: 'overlay',
         },
         properties: { source: 'android-location', recordedAt: point.recordedAt || null },
@@ -543,6 +660,10 @@ export default {
       if (fly) viewerInstance.flyTo({ longitude: point.longitude, latitude: point.latitude, altitude: 4500, pitch: -58, heading: 0, duration: 900 });
     },
     destroyViewer() {
+      viewportCleanup?.();
+      if (cameraFeedbackTimer !== null) clearInterval(cameraFeedbackTimer);
+      cameraFeedbackTimer = null;
+      lastFeedbackPitch = null;
       if (!viewerInstance) return;
       viewerInstance.destroy();
       viewerInstance = null;

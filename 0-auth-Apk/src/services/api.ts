@@ -42,8 +42,14 @@ function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', dat
       header: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) { resolve(response.data as T); return; }
-        const body = response.data as { detail?: string } | undefined;
-        reject(new ApiError(body?.detail || `请求失败 (${response.statusCode})`, response.statusCode));
+        const body = response.data as { detail?: string | Array<{ msg?: string }> } | undefined;
+        const rawDetail = body?.detail;
+        const detail = typeof rawDetail === 'string'
+          ? rawDetail
+          : Array.isArray(rawDetail)
+            ? rawDetail.map((item) => item.msg).filter(Boolean).join('；')
+            : '';
+        reject(new ApiError(detail || `请求失败 (${response.statusCode})`, response.statusCode));
       },
       fail(reason) { reject(new ApiError(reason.errMsg || '无法连接认证服务器', 0)); }
     });
@@ -52,6 +58,22 @@ function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', dat
 
 export function login(username: string, password: string): Promise<AuthSession> {
   return request('/auth/login', 'POST', { username, password, client_type: 'auth_apk' });
+}
+
+export function register(
+  username: string,
+  password: string,
+  securityAnswers: SecurityAnswerInput[],
+): Promise<AuthSession> {
+  return request('/users/register', 'POST', {
+    username,
+    password,
+    client_type: 'auth_apk',
+    terms_accepted: true,
+    privacy_accepted: true,
+    age_requirement_confirmed: true,
+    security_answers: securityAnswers,
+  });
 }
 
 export function refreshLogin(refreshToken: string): Promise<AuthSession> {
