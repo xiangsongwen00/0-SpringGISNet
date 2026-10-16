@@ -58,11 +58,11 @@ npm run dev
 
 ```powershell
 npm run typecheck
-npm run build
+npm run build:deploy
 npm run preview
 ```
 
-构建输出为 `dist/`。Preview 只用于本机验收，不用于生产常驻。可选执行 `npm run sdk:check-js`、`npm run test:sdk` 和 `npm run test:sdk:browser`。
+构建输出为 `dist/`。正式发布必须使用 `npm run build:deploy`：它先执行生产构建，再把根目录 `token.json` 过滤为仅含浏览器公开字段的 `dist/token.json`。单独运行 `npm run build` 会清空旧 `dist`，并且不会复制资源配置。Preview 只用于本机验收，不用于生产常驻。可选执行 `npm run sdk:check-js`、`npm run test:sdk` 和 `npm run test:sdk:browser`。
 
 ## 4. 更新本地 GIS SDK
 
@@ -116,9 +116,9 @@ cp -a dist "dist.backup.$(date +%Y%m%d-%H%M%S)"
 
 - 首页、登录/注册、用户管理和 GIS 展示可打开。
 - 刷新页面不出现 Web 服务器 404。
-- 网络面板请求当前站点 `/api/v1/...`。
+- 网络面板中的生产接口请求为 `http://8.137.36.114:8080/api/v1/...`，不能是 `:8000/api/v1/...`。
 - Refresh Token Cookie 保持 `HttpOnly`。
-- `token.json`、数据库密码和服务端密钥不在 `dist` 中。
+- `dist/token.json` 只包含浏览器可公开的资源字段；原始 `serverToken`、数据库密码和服务端密钥不在 `dist` 中。
 
 ## 7. 常见问题
 
@@ -141,5 +141,5 @@ Get-Process -Id <PID>
 
 ### GIS 资源不显示
 
-确认 `token.json` 有效；网络面板无 401/403/CORS；升级 SDK 后重新执行依赖安装、类型检查和构建。
+确认根目录 `token.json` 有效，并使用 `npm run build:deploy`；上传后确认服务器上的 `/token.json` 返回 JSON 而不是 404/HTML。网络面板还应无 401/403/CORS；升级 SDK 后重新执行依赖安装、类型检查和正式发布构建。
 

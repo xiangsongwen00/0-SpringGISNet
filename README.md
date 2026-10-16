@@ -37,7 +37,7 @@ npm run build
 npm run preview
 ```
 
-preview默认4173，只服务这个应用dist；不会重打包引擎、重新安装依赖或创建临时目录。静态部署整个dist。静态部署自己的配置时显式npm run config:deploy；不要共享维护者Key。
+preview默认4173，只服务这个应用dist；不会重打包引擎、重新安装依赖或创建临时目录。正式静态部署使用 `npm run build:deploy` 并上传整个dist；该命令只生成经过白名单过滤的浏览器资源配置，不要共享维护者Key。单独执行 `npm run build` 不会生成 `dist/token.json`。
 
 ## 更新SDK（仅引擎版本变化时）
 

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "npm run sdk:sync-js && npm run typecheck:sdk && vite build",
+    "build:deploy": "npm run build && npm run config:deploy",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "vue-tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sdk.json --noEmit",
     "typecheck:sdk": "tsc -p tsconfig.sdk.json --noEmit",

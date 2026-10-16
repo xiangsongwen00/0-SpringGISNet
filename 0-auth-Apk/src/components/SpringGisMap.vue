@@ -9,6 +9,7 @@
     <view class="engine-status">
       <text class="engine-title">SpringAndAutumnGIS · WGS84</text>
       <text>{{ point ? '已同步当前终端位置' : '全球视角 · 开启轨迹后显示当前位置' }}</text>
+      <text class="engine-runtime-status">引擎运行状态：等待 RenderJS</text>
     </view>
     <view class="engine-gesture">
       <text>单指旋转 · 双指平移/俯仰 · 双指捏合缩放 · 轻触用于测量与绘制</text>
@@ -60,6 +61,7 @@ const locationPayload = computed(() => props.point ? JSON.stringify({
 .engine-status { top: 24rpx; }
 .engine-status text { display: block; font-size: 22rpx; }
 .engine-title { margin-bottom: 4rpx; color: #7ce0d1; font-size: 25rpx !important; font-weight: 700; }
+.engine-runtime-status { margin-top: 6rpx; color: #ffd28a; font-size: 19rpx !important; }
 .engine-gesture { bottom: 20rpx; left: 112rpx; font-size: 20rpx; line-height: 1.45; }
 :deep(.engine-canvas canvas) { position: absolute; inset: 0; display: block; width: 100% !important; height: 100% !important; }
 :deep(.sag-tools) { z-index: 60 !important; left: 10px !important; max-height: calc(100% - 150px) !important; scrollbar-width: none; }

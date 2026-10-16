@@ -61,7 +61,7 @@
         <text class="section-title">春秋 GIS 三维地图</text>
         <text class="description">APK 内部直接运行 SpringAndAutumnGIS，不依赖 PC 页面。地图工具支持触控测量、绘制、视角复位、经纬网和底图切换；轨迹产生位置后会在地球上标记当前终端。</text>
         <SpringGisMap :point="locationState.lastPoint" />
-        <text class="privacy">未配置 APK 独立底图时仍显示 WGS84 三维地球与经纬网。天地图、Google 卫星或自有地图服务统一在本工程 config/token.json 中配置。</text>
+        <text class="privacy">APK 的底图与地形配置在编译时由本工程 config/token.json 独立打入，不读取 PC 站点的 /token.json。远程底图失败时仍应显示 WGS84 基础球体、经纬网和工具栏。</text>
       </view>
       <view v-show="activeModule === 'permission'">
       <view class="panel">

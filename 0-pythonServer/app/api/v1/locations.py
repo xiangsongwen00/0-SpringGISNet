@@ -28,7 +28,7 @@ from ...schemas import (
     normalize_username,
 )
 from ..dependencies import CurrentSession, CurrentUser, DbSession
-from ...config import get_settings
+from ...config import get_settings as get_app_settings
 
 
 router = APIRouter(prefix="/locations", tags=["locations"])
@@ -74,7 +74,7 @@ def wgs_to_gcj(longitude: float, latitude: float) -> tuple[float, float]:
 
 
 def amap_request(path: str, params: dict[str, str]) -> dict[str, object]:
-    key = get_settings().amap_web_service_key
+    key = get_app_settings().amap_web_service_key
     if not key:
         raise HTTPException(status_code=503, detail="尚未配置高德 Web 服务 Key")
     url = f"https://restapi.amap.com{path}?{urlencode({**params, 'key': key})}"
@@ -179,7 +179,7 @@ def validate_history_window(from_time: datetime, to_time: datetime) -> tuple[dat
 
 
 @router.get("/settings", response_model=LocationSettingResponse)
-def get_settings(db: DbSession, user: CurrentUser) -> LocationSettingResponse:
+def get_location_settings(db: DbSession, user: CurrentUser) -> LocationSettingResponse:
     setting = db.get(LocationSetting, user.id)
     return LocationSettingResponse(
         write_interval_seconds=setting.write_interval_seconds if setting else 2,

@@ -37,6 +37,16 @@ export default {
     this.destroyViewer();
   },
   methods: {
+    reportStatus(container, message, level = 'info') {
+      const shell = container?.parentElement;
+      const status = shell?.querySelector?.('.engine-runtime-status');
+      if (status) {
+        status.textContent = `引擎运行状态：${message}`;
+        status.style.color = level === 'error' ? '#ff9b9b' : level === 'success' ? '#86efcf' : '#ffd28a';
+      }
+      const method = level === 'error' ? 'error' : level === 'success' ? 'info' : 'log';
+      console[method](`[springgis-map] ${message}`);
+    },
     resolveContainer() {
       const root = this.$el;
       if (!root) return null;
@@ -183,10 +193,14 @@ export default {
         console.error('[springgis-map] 找不到 engine-canvas 挂载节点');
         return;
       }
+      this.reportStatus(container, 'RenderJS 已加载，正在检查地图容器');
       if (!await this.waitForLayout(container)) {
+        this.reportStatus(container, '地图容器没有可用尺寸', 'error');
         this.showFailure(container, '地图容器没有可用尺寸');
         return;
       }
+      const rect = container.getBoundingClientRect();
+      this.reportStatus(container, `容器 ${Math.round(rect.width)}×${Math.round(rect.height)}，正在准备资源`);
       const map = apkEnvironment.map || {};
       const { definitions: basemaps, names: baseMapNames } = this.buildBaseMaps();
       const terrainProvider = map.terrainEnabled === false ? null : this.buildTerrain();
@@ -194,33 +208,62 @@ export default {
       const baseMap = basemaps.some((item) => item.id === configuredDefault)
         ? configuredDefault
         : (basemaps[0]?.id ?? null);
+      this.reportStatus(container, `发现 ${basemaps.length} 个底图，地形${terrainProvider ? '已配置' : '未配置'}，正在初始化 WebGL`);
+      const viewerOptions = {
+        basemaps,
+        // Start with the ellipsoid first. Remote imagery is attached only after
+        // the globe and toolbar are visible, so a provider failure cannot leave
+        // the entire Android map area blank.
+        baseMap: null,
+        terrain: terrainProvider ? { provider: terrainProvider, enabled: true } : false,
+        showLodGrid: map.showLodGrid !== false,
+        autoStart: true,
+        pixelRatio: Math.min(window.devicePixelRatio || 1, number(map.maxPixelRatio, 1.5)),
+        initialView: {
+          longitude: number(map.initialView?.longitude, 106.55),
+          latitude: number(map.initialView?.latitude, 29.61),
+          altitude: number(map.initialView?.altitude, 18000000),
+        },
+        lod: {
+          minLevel: number(map.lod?.minLevel, 2),
+          maxLevel: number(map.lod?.maxLevel, 22),
+          maxTiles: number(map.lod?.maxTiles, 120),
+        },
+      };
       try {
-        this.viewer = await Viewer.create(container, {
-          basemaps,
-          baseMap,
-          terrain: terrainProvider ? { provider: terrainProvider, enabled: true } : false,
-          showLodGrid: map.showLodGrid !== false,
-          autoStart: true,
-          pixelRatio: Math.min(window.devicePixelRatio || 1, number(map.maxPixelRatio, 1.5)),
-          initialView: {
-            longitude: number(map.initialView?.longitude, 106.55),
-            latitude: number(map.initialView?.latitude, 29.61),
-            altitude: number(map.initialView?.altitude, 18000000),
-          },
-          lod: {
-            minLevel: number(map.lod?.minLevel, 2),
-            maxLevel: number(map.lod?.maxLevel, 22),
-            maxTiles: number(map.lod?.maxTiles, 120),
-          },
-        });
+        try {
+          this.viewer = await Viewer.create(container, viewerOptions);
+        } catch (terrainError) {
+          if (!terrainProvider) throw terrainError;
+          this.reportStatus(container, '地形初始化失败，正在降级为 WGS84 基础球体');
+          this.viewer = await Viewer.create(container, { ...viewerOptions, terrain: false });
+        }
         this.viewer.createToolbar({
           container,
           bottomOffset: number(map.toolbarBottomOffset, 58),
           baseMapNames,
         });
+        const canvasReady = Boolean(container.querySelector?.('canvas'));
+        const toolbarReady = Boolean(container.querySelector?.('.sag-tools'));
+        this.reportStatus(
+          container,
+          `基础球体${canvasReady ? '已创建' : '未检测到 Canvas'}，工具栏${toolbarReady ? '已创建' : '未创建'}`,
+          canvasReady && toolbarReady ? 'success' : 'error',
+        );
         if (this.lastPayload) this.applyLocation(this.lastPayload, true);
+        if (baseMap) {
+          this.reportStatus(container, `地球与工具栏已就绪，正在加载底图 ${baseMap}`);
+          this.viewer.setBaseMap(baseMap).then(() => {
+            this.reportStatus(container, `地球、工具栏和底图 ${baseMap} 已就绪`, 'success');
+          }).catch((baseMapError) => {
+            const reason = baseMapError instanceof Error ? baseMapError.message : String(baseMapError);
+            this.reportStatus(container, `基础球体已就绪，但底图加载失败：${reason}`, 'error');
+          });
+        }
       } catch (error) {
-        this.showFailure(container, error instanceof Error ? error.message : String(error));
+        const reason = error instanceof Error ? error.message : String(error);
+        this.reportStatus(container, `启动失败：${reason}`, 'error');
+        this.showFailure(container, reason);
       }
     },
     updateLocation(value) {
