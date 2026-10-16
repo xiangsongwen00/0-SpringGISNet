@@ -44,7 +44,7 @@ const locationPayload = computed(() => props.point ? JSON.stringify({
   background: #071923;
   box-shadow: 0 20rpx 48rpx rgba(7, 29, 41, .24);
 }
-.engine-canvas { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; touch-action: none; }
+.engine-canvas { position: absolute; z-index: 1; inset: 0; display: block; width: 100%; height: 100%; min-width: 1px; min-height: 1px; overflow: hidden; touch-action: none; }
 .engine-status,.engine-gesture {
   position: absolute;
   z-index: 20;
@@ -61,5 +61,11 @@ const locationPayload = computed(() => props.point ? JSON.stringify({
 .engine-status text { display: block; font-size: 22rpx; }
 .engine-title { margin-bottom: 4rpx; color: #7ce0d1; font-size: 25rpx !important; font-weight: 700; }
 .engine-gesture { bottom: 20rpx; left: 112rpx; font-size: 20rpx; line-height: 1.45; }
+:deep(.engine-canvas canvas) { position: absolute; inset: 0; display: block; width: 100% !important; height: 100% !important; }
+:deep(.sag-tools) { z-index: 60 !important; left: 10px !important; max-height: calc(100% - 150px) !important; scrollbar-width: none; }
+:deep(.sag-tools::-webkit-scrollbar) { display: none; }
+:deep(.sag-tool-panel) { z-index: 70 !important; top: 112px !important; max-height: calc(100% - 190px) !important; overscroll-behavior: contain; }
+:deep(.sag-tool-panel--compact) { top: auto !important; }
+:deep(.sag-tool-panel select), :deep(.sag-tool-panel input), :deep(.sag-tool-panel button) { min-height: 36px; color: #dcf7ff !important; -webkit-text-fill-color: #dcf7ff; }
 :deep(.engine-failure) { position: absolute; inset: 30% 24rpx auto; z-index: 80; padding: 24rpx; border-radius: 18rpx; background: rgba(111, 30, 30, .92); color: #fff; font: 14px/1.6 sans-serif; }
 </style>

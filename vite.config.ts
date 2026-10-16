@@ -40,12 +40,6 @@ export default defineConfig({
   preview: {
     host: pcEnvironment.devServer.host,
     port: pcEnvironment.devServer.previewPort,
-    strictPort: pcEnvironment.devServer.strictPort,
-    proxy: {
-      '/api': {
-        target: pcEnvironment.api.productionReverseProxyUpstream,
-        changeOrigin: true
-      }
-    }
+    strictPort: pcEnvironment.devServer.strictPort
   }
 });

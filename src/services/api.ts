@@ -1,7 +1,14 @@
 import type { ApiErrorBody, AuthTokens, AuthUser, DeviceType, SecurityAnswerInput, SecurityQuestion } from '../types/auth';
 import pcEnvironment from '../../config/pc.env.json';
 
-const API_BASE = pcEnvironment.api.basePath.replace(/\/$/, '');
+// Development uses Vite's same-origin proxy. A production bundle is served by
+// the independent PC service on :8000 and therefore calls the API on :8080
+// explicitly instead of accidentally resolving /api against the PC service.
+const API_BASE = (
+  import.meta.env.DEV
+    ? pcEnvironment.api.developmentBasePath
+    : pcEnvironment.api.productionBaseUrl
+).replace(/\/$/, '');
 const ACCESS_KEY = 'springgis.access_token';
 
 function getStoredAccessToken(): string | null {

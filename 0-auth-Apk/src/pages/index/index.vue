@@ -1,5 +1,6 @@
 <template>
   <view class="page">
+    <view class="status-bar-mask" aria-hidden="true" />
     <view class="safe-top" />
     <view class="brand-row">
       <image class="brand-icon" src="/static/app-icon.png" mode="aspectFill" />
@@ -496,6 +497,7 @@ onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerif
 
 <style scoped>
 .page { min-height: 100vh; padding: 0 32rpx 64rpx; background: radial-gradient(circle at 16% 6%, rgba(91,192,235,.2), transparent 28%), #f7fbfc; box-sizing: border-box; }
+.status-bar-mask { position: fixed; z-index: 200; top: 0; left: 0; right: 0; height: var(--status-bar-height); background: rgba(247,251,252,.98); pointer-events: none; }
 .safe-top { height: calc(var(--status-bar-height) + 24rpx); }
 .brand-row { display: flex; align-items: center; gap: 20rpx; margin: 16rpx 0 40rpx; }
 .brand-icon { width: 92rpx; height: 92rpx; flex: 0 0 92rpx; border-radius: 26rpx; box-shadow: 0 14rpx 36rpx rgba(181,103,49,.24); }
@@ -516,7 +518,7 @@ onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerif
 .diagnostic-notice { display: block; margin-top: 20rpx; color: #91afb6; font-size: 21rpx; line-height: 1.5; }
 .migration-verification { margin-top: 20rpx; }
 .migration-verification > input { width: 100%; height: 88rpx; padding: 0 22rpx; border: 1rpx solid rgba(14,124,147,.24); border-radius: 18rpx; background: white; box-sizing: border-box; }
-.module-tabs { display: flex; gap: 12rpx; margin-bottom: 28rpx; padding: 8rpx; border-radius: 24rpx; background: rgba(255,255,255,.8); }
+.module-tabs { position: sticky; z-index: 120; top: calc(var(--status-bar-height) + 8rpx); display: flex; gap: 12rpx; margin-bottom: 28rpx; padding: 8rpx; border: 1rpx solid rgba(14,124,147,.12); border-radius: 24rpx; background: rgba(247,251,252,.96); box-shadow: 0 10rpx 28rpx rgba(16,39,45,.1); backdrop-filter: blur(12px); }
 .module-tab { flex: 1; padding: 20rpx 12rpx; border-radius: 18rpx; color: #6a7d82; text-align: center; font-size: 27rpx; font-weight: 700; }
 .module-tab.active { background: #10272d; color: white; box-shadow: 0 10rpx 24rpx rgba(16,39,45,.18); }
 .tracking-panel { border-color: rgba(197,113,51,.22); background: linear-gradient(155deg,#fffaf3,#fff); }

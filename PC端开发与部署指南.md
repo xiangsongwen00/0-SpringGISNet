@@ -1,6 +1,6 @@
 # PC 端开发与部署指南
 
-> 对应仓库根目录的 Vue 3 + TypeScript + Vite 工程。最后核对：2026-10-15。
+> 对应仓库根目录的 Vue 3 + TypeScript + Vite 工程。最后核对：2026-10-16。PC 正式端口固定为 `8000`，Python API 固定为 `8080`。
 
 ## 1. 运行环境
 
@@ -23,17 +23,18 @@ npm install
 {
   "devServer": { "host": "0.0.0.0", "port": 5173, "strictPort": true, "previewPort": 4173 },
   "api": {
-    "basePath": "/api/v1",
+    "developmentBasePath": "/api/v1",
     "developmentProxyTarget": "http://8.137.36.114:8080",
-    "productionReverseProxyUpstream": "http://8.137.36.114:8080"
+    "productionBaseUrl": "http://8.137.36.114:8080/api/v1"
   }
 }
 ```
 
-- `basePath` 是浏览器使用的同源路径。
+- `developmentBasePath` 是开发服务器使用的同源代理路径。
 - `developmentProxyTarget` 只控制 `npm run dev`。
-- `productionReverseProxyUpstream` 只控制 `npm run preview`，不会自动配置 OpenResty。
-- 正式部署必须单独配置 Web 服务器的 `/api/` 代理。
+- `productionBaseUrl` 会编译进正式 PC 包，当前固定为后端 `8080` 的完整接口前缀。
+- 正式 PC 页面运行在 `8000`，不会再把 `/api/v1` 错误发送给静态站点端口。
+- 因 `8000` 与 `8080` 属于不同源，后端 `env.ini` 的 CORS 必须精确允许 `http://8.137.36.114:8000`。
 
 GIS 资源凭据从 `token.json` 读取。首次使用：
 
@@ -83,23 +84,14 @@ Remove-Item Env:SDK_ENGINE_DIR
 
 ## 5. OpenResty/Nginx 正式部署
 
-将 `dist/` 上传到站点目录，例如 `/opt/springgis/web/dist`。推荐同域配置：
+将 `dist/` 上传到站点目录，例如 `/opt/springgis/web/dist`。PC 对外端口固定为 `8000`；API 由前端生产配置直接访问 `8080`，Web 服务器不需要配置 `/api/` 代理：
 
 ```nginx
 server {
-    listen 80;
-    server_name gis.example.com;
+    listen 8000;
+    server_name 8.137.36.114;
     root /opt/springgis/web/dist;
     index index.html;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
 
     location / {
         try_files $uri $uri/ /index.html;
@@ -107,9 +99,9 @@ server {
 }
 ```
 
-启用 HTTPS 后让 80 跳转 443。浏览器请求 `https://gis.example.com/api/v1/...`，OpenResty 内部转发到 8080；后端 CORS 保持空白。
+浏览器页面地址为 `http://8.137.36.114:8000`，接口地址为 `http://8.137.36.114:8080/api/v1/...`。服务器防火墙必须允许 `8000` 和 `8080`，后端 CORS 必须允许 PC 的 `8000` 来源。
 
-1Panel 中应创建静态网站、将运行目录指向 `dist`、添加 `/api/` 反向代理、申请证书并开启 HTTPS 跳转。`config/pc.env.json` 不会替代 1Panel 配置。
+1Panel 中应创建静态网站、将运行目录指向 `dist`，并将 PC 监听端口设置为 `8000`。`config/pc.env.json` 决定生产包访问哪个 API，但不会替代服务器防火墙和后端 CORS 配置。
 
 ## 6. 发布、回滚和验收
 
@@ -141,7 +133,7 @@ Get-Process -Id <PID>
 
 ### 页面能开但 API 404
 
-确认请求以 `/api/v1` 开头；开发时检查 Vite，生产时检查 OpenResty `/api/` 代理。`productionReverseProxyUpstream` 只对 `npm run preview` 生效。
+开发请求应以 `/api/v1` 开头并由 Vite 转发；生产请求的完整地址应为 `http://8.137.36.114:8080/api/v1/...`。如果仍然请求 `:8000/api/v1`，说明服务器上还是旧的 `dist`，需要重新构建、上传并清理浏览器缓存。
 
 ### API 500
 

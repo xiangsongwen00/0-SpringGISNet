@@ -37,6 +37,27 @@ export default {
     this.destroyViewer();
   },
   methods: {
+    resolveContainer() {
+      const root = this.$el;
+      if (!root) return null;
+      if (root.classList?.contains('engine-canvas')) return root;
+      return root.querySelector?.('.engine-canvas') || null;
+    },
+    async waitForLayout(container) {
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const rect = container.getBoundingClientRect();
+        if (rect.width >= 10 && rect.height >= 10) return true;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return false;
+    },
+    showFailure(container, reason) {
+      if (!container || container.querySelector?.('.engine-failure')) return;
+      const message = document.createElement('div');
+      message.className = 'engine-failure';
+      message.textContent = `三维引擎启动失败：${reason}`;
+      container.append(message);
+    },
     buildBaseMaps() {
       const definitions = [];
       const names = {};
@@ -157,8 +178,15 @@ export default {
     },
     async createViewer() {
       if (this.viewer) return;
-      const container = this.$el.querySelector('.engine-canvas');
-      if (!container) return;
+      const container = this.resolveContainer();
+      if (!container) {
+        console.error('[springgis-map] 找不到 engine-canvas 挂载节点');
+        return;
+      }
+      if (!await this.waitForLayout(container)) {
+        this.showFailure(container, '地图容器没有可用尺寸');
+        return;
+      }
       const map = apkEnvironment.map || {};
       const { definitions: basemaps, names: baseMapNames } = this.buildBaseMaps();
       const terrainProvider = map.terrainEnabled === false ? null : this.buildTerrain();
@@ -185,13 +213,14 @@ export default {
             maxTiles: number(map.lod?.maxTiles, 120),
           },
         });
-        this.viewer.createToolbar({ bottomOffset: number(map.toolbarBottomOffset, 58), baseMapNames });
+        this.viewer.createToolbar({
+          container,
+          bottomOffset: number(map.toolbarBottomOffset, 58),
+          baseMapNames,
+        });
         if (this.lastPayload) this.applyLocation(this.lastPayload, true);
       } catch (error) {
-        const message = document.createElement('div');
-        message.className = 'engine-failure';
-        message.textContent = `三维引擎启动失败：${error instanceof Error ? error.message : String(error)}`;
-        container.append(message);
+        this.showFailure(container, error instanceof Error ? error.message : String(error));
       }
     },
     updateLocation(value) {
