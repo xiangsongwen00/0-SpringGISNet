@@ -145,6 +145,23 @@ export interface CurrentLocation extends LocationPoint {
   source: string;
 }
 
+export interface TrackSegment {
+  segment_id: string;
+  frequency_seconds: number;
+  started_at: string;
+  ended_at: string;
+  point_count: number;
+  points: LocationPoint[];
+}
+
+export interface TrackHistory {
+  owner_user_uuid: string;
+  owner_username: string;
+  from_time: string;
+  to_time: string;
+  segments: TrackSegment[];
+}
+
 export function getLocationSetting(accessToken: string): Promise<LocationSetting> {
   return request('/locations/settings', 'GET', undefined, accessToken);
 }
@@ -166,4 +183,9 @@ export function uploadLocationPoints(accessToken: string, points: LocationPoint[
 
 export function getMyCurrentLocation(accessToken: string): Promise<CurrentLocation> {
   return request('/locations/me/current', 'GET', undefined, accessToken);
+}
+
+export function getMyTrackHistory(accessToken: string, from: Date, to: Date): Promise<TrackHistory> {
+  const query = `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`;
+  return request(`/locations/me/history?${query}`, 'GET', undefined, accessToken);
 }

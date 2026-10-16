@@ -60,7 +60,28 @@
       <view v-if="activeModule === 'map'" class="panel engine-panel">
         <text class="section-title">春秋 GIS 三维地图</text>
         <text class="description">APK 内部直接运行 SpringAndAutumnGIS，不依赖 PC 页面。地图工具支持触控测量、绘制、视角复位、经纬网和底图切换；轨迹产生位置后会在地球上标记当前终端。</text>
-        <SpringGisMap :point="locationState.lastPoint" />
+        <view class="playback-card">
+          <view class="playback-row">
+            <picker :range="historyWindowLabels" :value="historyWindowIndex" @change="changeHistoryWindow">
+              <view class="playback-select">范围：{{ historyWindowLabels[historyWindowIndex] }}</view>
+            </picker>
+            <view class="playback-action" @click="loadHistoryTrack">{{ historyLoading ? '读取中…' : '读取轨迹' }}</view>
+          </view>
+          <template v-if="historyTrackPoints.length">
+            <text class="playback-summary">已加载 {{ historyTrackPoints.length }} 个回放点 · {{ formatPlaybackTime(playbackPoint?.recorded_at) }}</text>
+            <slider :value="playbackProgress" min="0" max="1000" activeColor="#e58b47" backgroundColor="#d8e8eb" block-size="18" @change="seekPlayback" />
+            <view class="playback-row">
+              <view class="playback-action" @click="togglePlayback">{{ playbackPlaying ? '暂停' : '播放' }}</view>
+              <view class="playback-action playback-action--muted" @click="stopPlayback">停止</view>
+              <picker :range="playbackSpeedLabels" :value="playbackSpeedIndex" @change="changePlaybackSpeed">
+                <view class="playback-select">速度 {{ playbackSpeedLabels[playbackSpeedIndex] }}</view>
+              </picker>
+            </view>
+          </template>
+          <text v-else class="playback-summary">支持读取并动画回放本人最近三天内的历史轨迹。</text>
+          <text v-if="historyError" class="error">{{ historyError }}</text>
+        </view>
+        <SpringGisMap :point="locationState.lastPoint" :track-points="historyTrackPoints" :playback-point="playbackPoint" />
         <text class="privacy">APK 的底图与地形配置在编译时由本工程 config/token.json 独立打入，不读取 PC 站点的 /token.json。远程底图失败时仍应显示 WGS84 基础球体、经纬网和工具栏。</text>
       </view>
       <view v-show="activeModule === 'permission'">
@@ -112,10 +133,10 @@
 </template>
 
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import SpringGisMap from '../../components/SpringGisMap.vue';
-import { ApiError, confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, LOCATION_INTERVALS, login, logout as logoutApi, refreshLogin, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
+import { ApiError, confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, getMyTrackHistory, LOCATION_INTERVALS, login, logout as logoutApi, refreshLogin, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
 import { ensureTerminalKey, getNativeKeyDiagnostics, isNativeKeyAvailable, signTerminalPayload } from '../../services/keystore';
 import { LocationTracker, type LocationTrackerState } from '../../services/locationTracker';
 import { clearRefreshSession, loadRefreshToken, saveRefreshSession } from '../../services/sessionStorage';
@@ -135,6 +156,22 @@ const locationIntervals = [...LOCATION_INTERVALS];
 const locationInterval = ref<LocationInterval>(2);
 const locationIntervalIndex = ref(1);
 const locationState = ref<LocationTrackerState>({ running: false, lastPoint: null, lastUploadedAt: null, error: '' });
+const historyWindows = [60 * 60 * 1000, 6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 3 * 24 * 60 * 60 * 1000];
+const historyWindowLabels = ['最近 1 小时', '最近 6 小时', '最近 24 小时', '最近 3 天'];
+const historyWindowIndex = ref(2);
+const historyTrackPoints = ref<LocationPoint[]>([]);
+const historyLoading = ref(false);
+const historyError = ref('');
+const playbackIndex = ref(0);
+const playbackPlaying = ref(false);
+const playbackSpeedOptions = [1, 2, 5, 10];
+const playbackSpeedLabels = playbackSpeedOptions.map((speed) => `${speed}×`);
+const playbackSpeedIndex = ref(1);
+const playbackPoint = computed(() => historyTrackPoints.value[playbackIndex.value] ?? null);
+const playbackProgress = computed(() => historyTrackPoints.value.length <= 1
+  ? 0
+  : Math.round(playbackIndex.value / (historyTrackPoints.value.length - 1) * 1000));
+let playbackTimer: ReturnType<typeof setInterval> | null = null;
 let locationTracker: LocationTracker | null = null;
 const bindingLogs = ref<string[]>([]);
 const quickRemaining = ref(0);
@@ -172,6 +209,7 @@ function resetLocalSession(removeStoredSession = true) {
   migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = [];
   revokeAuthorizationCode.value = ''; revokeVerificationCode.value = '';
   locationState.value = { running: false, lastPoint: null, lastUploadedAt: null, error: '' };
+  clearPlaybackTimer(); historyTrackPoints.value = []; playbackIndex.value = 0; historyError.value = '';
   if (removeStoredSession) {
     clearRefreshSession();
     hasSavedSession.value = false;
@@ -302,6 +340,80 @@ async function changeLocationInterval(event: { detail: { value: string | number 
 
 function formatLocationTime(value: string | null): string {
   return value ? new Date(value).toLocaleTimeString('zh-CN', { hour12: false }) : '未上传';
+}
+
+function clearPlaybackTimer() {
+  if (playbackTimer !== null) clearInterval(playbackTimer);
+  playbackTimer = null;
+  playbackPlaying.value = false;
+}
+
+function changeHistoryWindow(event: { detail: { value: string | number } }) {
+  historyWindowIndex.value = Number(event.detail.value);
+}
+
+function changePlaybackSpeed(event: { detail: { value: string | number } }) {
+  playbackSpeedIndex.value = Number(event.detail.value);
+}
+
+function formatPlaybackTime(value?: string): string {
+  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未开始';
+}
+
+function downsampleTrack(points: LocationPoint[], maximum = 3000): LocationPoint[] {
+  if (points.length <= maximum) return points;
+  const step = Math.ceil(points.length / maximum);
+  const sampled = points.filter((_point, index) => index % step === 0);
+  const last = points[points.length - 1];
+  if (last && sampled[sampled.length - 1] !== last) sampled.push(last);
+  return sampled;
+}
+
+async function loadHistoryTrack() {
+  if (!session.value || historyLoading.value) return;
+  clearPlaybackTimer();
+  historyLoading.value = true;
+  historyError.value = '';
+  try {
+    const to = new Date();
+    const windowMs = historyWindows[historyWindowIndex.value] ?? historyWindows[2];
+    const history = await getMyTrackHistory(session.value.access_token, new Date(to.getTime() - windowMs), to);
+    const points = history.segments
+      .flatMap((segment) => segment.points)
+      .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude) && Boolean(point.recorded_at))
+      .sort((left, right) => new Date(left.recorded_at).getTime() - new Date(right.recorded_at).getTime());
+    historyTrackPoints.value = downsampleTrack(points);
+    playbackIndex.value = 0;
+    if (!points.length) historyError.value = '所选时间范围内没有历史轨迹点。';
+  } catch (reason) {
+    historyTrackPoints.value = [];
+    historyError.value = reason instanceof Error ? reason.message : '无法读取历史轨迹';
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+function togglePlayback() {
+  if (playbackPlaying.value) { clearPlaybackTimer(); return; }
+  if (historyTrackPoints.value.length < 2) return;
+  if (playbackIndex.value >= historyTrackPoints.value.length - 1) playbackIndex.value = 0;
+  playbackPlaying.value = true;
+  playbackTimer = setInterval(() => {
+    const step = playbackSpeedOptions[playbackSpeedIndex.value] ?? 1;
+    playbackIndex.value = Math.min(historyTrackPoints.value.length - 1, playbackIndex.value + step);
+    if (playbackIndex.value >= historyTrackPoints.value.length - 1) clearPlaybackTimer();
+  }, 160);
+}
+
+function stopPlayback() {
+  clearPlaybackTimer();
+  playbackIndex.value = 0;
+}
+
+function seekPlayback(event: { detail: { value: number } }) {
+  clearPlaybackTimer();
+  const maximum = Math.max(0, historyTrackPoints.value.length - 1);
+  playbackIndex.value = Math.round(maximum * Number(event.detail.value) / 1000);
 }
 
 async function refreshSecurityQuestions(authenticated = session.value) {
@@ -492,7 +604,7 @@ async function resumeSession() {
 void restorePersistedSession();
 onShow(() => void resumeSession());
 statusTimer = setInterval(() => void syncRemoteState(), 10000);
-onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
+onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
 </script>
 
 <style scoped>
@@ -530,4 +642,10 @@ onUnmounted(() => { locationTracker?.stop(); clearQuickTimer(); clearRevokeVerif
 .tracking-stop { margin-top: 28rpx; border: 1rpx solid #b35a36; border-radius: 999rpx; background: white; color: #9e4427; font-size: 29rpx; }
 .engine-panel { padding: 24rpx; background: linear-gradient(155deg,#f7fcfd,#fff); }
 .engine-panel > .description { margin-bottom: 24rpx; }
+.playback-card { margin-bottom: 22rpx; padding: 20rpx; border: 1rpx solid rgba(197,113,51,.22); border-radius: 20rpx; background: #fffaf3; }
+.playback-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
+.playback-select,.playback-action { padding: 14rpx 18rpx; border: 1rpx solid rgba(14,124,147,.25); border-radius: 14rpx; background: white; color: #0e7c93; font-size: 22rpx; font-weight: 700; }
+.playback-action { background: #0e7c93; color: white; }
+.playback-action--muted { background: white; color: #6a7d82; }
+.playback-summary { display: block; margin: 16rpx 0 8rpx; color: #6a5a4e; font-size: 22rpx; line-height: 1.5; }
 </style>
