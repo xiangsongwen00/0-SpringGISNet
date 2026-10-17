@@ -32,7 +32,11 @@
         </view>
         <text class="pitch-caption">俯仰</text>
       </view>
-      <view class="map-control map-control--text" @click="sendControl('locate')">定位</view>
+      <view class="map-control map-control--text" @click="locateOnce">定位</view>
+      <view
+        :class="['map-control', 'map-control--text', { 'map-control--active': followLocation }]"
+        @click="toggleLocationFollow"
+      >{{ followLocation ? '追踪中' : '追踪' }}</view>
       <view class="map-control map-control--text" @click="setViewMode(viewMode === 'fullscreen' ? 'normal' : 'fullscreen')">{{ viewMode === 'fullscreen' ? '恢复' : '全屏' }}</view>
     </view>
   </view>
@@ -46,9 +50,13 @@ const props = defineProps<{
   point: LocationPoint | null;
   trackPoints?: LocationPoint[];
   playbackPoint?: LocationPoint | null;
+  playbackIndex?: number;
   immersive?: boolean;
 }>();
+const emit = defineEmits<{ (event: 'follow-mode-change', mode: 'none' | 'live' | 'playback'): void }>();
 const viewMode = ref<'normal' | 'fullscreen'>('normal');
+const followMode = ref<'none' | 'live' | 'playback'>('none');
+const followLocation = computed(() => followMode.value === 'live');
 const pitchValue = ref(58);
 const pitchPercent = computed(() => pitchValue.value / 90 * 100);
 const controlSequence = ref(0);
@@ -59,6 +67,7 @@ const locationPayload = computed(() => props.point ? JSON.stringify({
   latitude: props.point.latitude,
   altitude: props.point.altitude,
   accuracy: props.point.accuracy,
+  heading: props.point.heading,
   recordedAt: props.point.recorded_at,
 }) : '');
 const trackPayload = computed(() => JSON.stringify(props.trackPoints ?? []));
@@ -67,12 +76,42 @@ const playbackPayload = computed(() => props.playbackPoint ? JSON.stringify({
   latitude: props.playbackPoint.latitude,
   altitude: props.playbackPoint.altitude,
   accuracy: props.playbackPoint.accuracy,
+  speed: props.playbackPoint.speed,
+  heading: props.playbackPoint.heading,
+  playbackIndex: props.playbackIndex ?? 0,
   recordedAt: props.playbackPoint.recorded_at,
 }) : '');
 
-function sendControl(action: string, value?: number) {
+function sendControl(action: string, value?: number | string) {
   controlSequence.value += 1;
   controlPayload.value = JSON.stringify({ action, value, sequence: controlSequence.value });
+}
+
+function toggleLocationFollow() {
+  if (!props.point) {
+    uni.showToast({ title: '请先开启轨迹定位', icon: 'none' });
+    return;
+  }
+  setFollowMode(followMode.value === 'live' ? 'none' : 'live');
+}
+
+function locateOnce() {
+  if (!props.point) {
+    uni.showToast({ title: '请先开启轨迹定位', icon: 'none' });
+    return;
+  }
+  sendControl('locate');
+}
+
+function setFollowMode(mode: 'none' | 'live' | 'playback') {
+  followMode.value = mode;
+  sendControl('follow-mode', mode);
+  emit('follow-mode-change', mode);
+}
+
+function setPlaybackFollow(enabled: boolean) {
+  if (enabled) setFollowMode('playback');
+  else if (followMode.value === 'playback') setFollowMode('none');
 }
 
 function measurePitchTrack(callback?: () => void) {
@@ -124,7 +163,7 @@ function recyclePlaybackEntities() {
   sendControl('clear-playback');
 }
 
-defineExpose({ syncPitchFromEngine, recyclePlaybackEntities });
+defineExpose({ syncPitchFromEngine, recyclePlaybackEntities, setPlaybackFollow });
 
 onMounted(() => void nextTick(() => measurePitchTrack()));
 </script>
@@ -167,6 +206,7 @@ onMounted(() => void nextTick(() => measurePitchTrack()));
 .map-controls { position: absolute; z-index: 90; top: 20rpx; right: 18rpx; display: flex; flex-direction: column; gap: 8rpx; }
 .map-control { display: flex; align-items: center; justify-content: center; width: 68rpx; height: 64rpx; border: 1rpx solid rgba(126,214,223,.55); border-radius: 14rpx; background: rgba(7,29,41,.9); color: #e6fbff; font-size: 38rpx; font-weight: 700; box-shadow: 0 6rpx 16rpx rgba(0,0,0,.2); }
 .map-control--text { font-size: 20rpx; font-weight: 600; }
+.map-control--active { border-color: #25d9ff; background: rgba(14,124,147,.96); color: #7eeeff; box-shadow: 0 0 0 4rpx rgba(37,217,255,.18), 0 6rpx 16rpx rgba(0,0,0,.2); }
 .pitch-control { position: relative; width: 68rpx; height: 300rpx; border: 1rpx solid rgba(126,214,223,.55); border-radius: 16rpx; background: rgba(7,29,41,.9); box-shadow: 0 6rpx 16rpx rgba(0,0,0,.2); }
 .pitch-track { position: absolute; z-index: 3; top: 44rpx; bottom: 42rpx; left: 16rpx; right: 16rpx; border-radius: 20rpx; background: #335d69; touch-action: none; }
 .pitch-track-fill { position: absolute; right: 0; bottom: 0; left: 0; border-radius: 20rpx; background: #7ce0d1; pointer-events: none; }

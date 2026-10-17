@@ -20,6 +20,31 @@ let viewportCleanup = null;
 let viewportTimers = [];
 let cameraFeedbackTimer = null;
 let lastFeedbackPitch = null;
+let followMode = 'none';
+const FOLLOW_CLEARANCE_METERS = 200;
+const FOLLOW_CAMERA_INTERVAL_MS = 360;
+let followHeadingSamples = [];
+let followStableHeading = 0;
+let followCameraTimer = null;
+let followCameraPoint = null;
+let lastFollowCameraAt = 0;
+let cachedTrackPayload = '';
+let cachedTrackPositions = [];
+
+function stableFollowHeading() {
+  if (followHeadingSamples.length < 30) return null;
+  let sine = 0;
+  let cosine = 0;
+  for (const heading of followHeadingSamples) {
+    const radians = heading * Math.PI / 180;
+    sine += Math.sin(radians);
+    cosine += Math.cos(radians);
+  }
+  const count = followHeadingSamples.length;
+  const concentration = Math.sqrt(sine * sine + cosine * cosine) / count;
+  if (concentration < 0.92) return null;
+  return (Math.atan2(sine, cosine) * 180 / Math.PI + 360) % 360;
+}
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -632,7 +657,11 @@ export default {
         // Restore the marker without taking over the global startup view.
         // The dedicated "定位" control remains the explicit way to fly near.
         if (this.lastPayload) this.restoreEntitySafely(container, '当前位置', () => this.applyLocation(this.lastPayload, false));
-        if (this.lastTrackPayload) this.restoreEntitySafely(container, '轨迹线', () => this.applyTrack(this.lastTrackPayload));
+        if (this.lastTrackPayload) {
+          let playbackIndex = 0;
+          try { playbackIndex = number(JSON.parse(this.lastPlaybackPayload || '{}').playbackIndex, 0); } catch { playbackIndex = 0; }
+          this.restoreEntitySafely(container, '轨迹线', () => this.applyTrack(this.lastTrackPayload, playbackIndex));
+        }
         if (this.lastPlaybackPayload) this.restoreEntitySafely(container, '回放位置', () => this.applyPlayback(this.lastPlaybackPayload));
         if (baseMap) {
           this.reportStatus(container, `地球与工具栏已就绪，正在加载底图 ${baseMap}`);
@@ -652,15 +681,21 @@ export default {
     },
     updateLocation(value) {
       this.lastPayload = value || '';
-      if (viewerInstance && value) this.restoreEntitySafely(this.resolveContainer(), '当前位置', () => this.applyLocation(value, false));
+      if (viewerInstance && value) this.restoreEntitySafely(this.resolveContainer(), '当前位置', () => this.applyLocation(value, followMode === 'live'));
     },
     updateTrack(value) {
       this.lastTrackPayload = value || '';
-      if (viewerInstance) this.restoreEntitySafely(this.resolveContainer(), '轨迹线', () => this.applyTrack(this.lastTrackPayload));
+      let playbackIndex = 0;
+      try { playbackIndex = number(JSON.parse(this.lastPlaybackPayload || '{}').playbackIndex, 0); } catch { playbackIndex = 0; }
+      if (viewerInstance) this.restoreEntitySafely(this.resolveContainer(), '轨迹线', () => this.applyTrack(this.lastTrackPayload, playbackIndex));
     },
     updatePlayback(value) {
       this.lastPlaybackPayload = value || '';
-      if (viewerInstance) this.restoreEntitySafely(this.resolveContainer(), '回放位置', () => this.applyPlayback(this.lastPlaybackPayload));
+      if (!viewerInstance) return;
+      let playbackIndex = 0;
+      try { playbackIndex = number(JSON.parse(this.lastPlaybackPayload || '{}').playbackIndex, 0); } catch { playbackIndex = 0; }
+      this.restoreEntitySafely(this.resolveContainer(), '轨迹线', () => this.applyTrack(this.lastTrackPayload, playbackIndex));
+      this.restoreEntitySafely(this.resolveContainer(), '回放位置', () => this.applyPlayback(this.lastPlaybackPayload, followMode === 'playback'));
     },
     handleControl(value) {
       if (!value) return;
@@ -671,6 +706,22 @@ export default {
         return;
       }
       if (!viewerInstance) return;
+      if (command.action === 'follow-mode') {
+        followMode = command.value === 'live' || command.value === 'playback' ? command.value : 'none';
+        if (followCameraTimer !== null) clearTimeout(followCameraTimer);
+        followCameraTimer = null;
+        followCameraPoint = null;
+        lastFollowCameraAt = 0;
+        followHeadingSamples = [];
+        followStableHeading = 0;
+        const followPayload = followMode === 'live' ? this.lastPayload : followMode === 'playback' ? this.lastPlaybackPayload : '';
+        if (followPayload) {
+          try { this.followPoint(JSON.parse(followPayload), true); } catch { /* Wait for the next valid point. */ }
+        }
+        const modeLabel = followMode === 'live' ? '实时位置追踪已开启' : followMode === 'playback' ? '回放位置追踪已开启' : '相机追踪已关闭';
+        this.reportStatus(this.resolveContainer(), `${modeLabel}，相机约离地 ${FOLLOW_CLEARANCE_METERS}m`, 'success');
+        return;
+      }
       if (command.action === 'clear-playback') {
         // Explicit lifecycle end: stopping playback only resets time, whereas
         // recycling must destroy both map entities, including the icon texture
@@ -680,6 +731,17 @@ export default {
         if (viewerInstance.entities.has(TRACK_ENTITY_ID)) viewerInstance.entities.remove(TRACK_ENTITY_ID);
         this.lastPlaybackPayload = '';
         this.lastTrackPayload = '[]';
+        cachedTrackPayload = '';
+        cachedTrackPositions = [];
+        if (followMode === 'playback') {
+          followMode = 'none';
+          if (followCameraTimer !== null) clearTimeout(followCameraTimer);
+          followCameraTimer = null;
+          followCameraPoint = null;
+          lastFollowCameraAt = 0;
+          followHeadingSamples = [];
+          followStableHeading = 0;
+        }
         this.reportStatus(this.resolveContainer(), '轨迹线与回放图标已回收', 'success');
         return;
       }
@@ -735,36 +797,92 @@ export default {
       const { id: _id, type: _type, ...mutableFields } = entity;
       viewerInstance.entities.update(entity.id, mutableFields);
     },
-    applyTrack(value) {
-      let points;
-      try { points = JSON.parse(value || '[]'); } catch { points = []; }
-      if (!Array.isArray(points) || points.length < 2) {
+    applyTrack(value, playbackIndex = 0) {
+      const payload = value || '[]';
+      if (payload !== cachedTrackPayload) {
+        let points;
+        try { points = JSON.parse(payload); } catch { points = []; }
+        if (!Array.isArray(points)) points = [];
+        cachedTrackPayload = payload;
+        cachedTrackPositions = points
+          .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
+          .map((point) => [point.longitude, point.latitude, (Number.isFinite(point.altitude) ? point.altitude : 0) + 4]);
+      }
+      const endIndex = Math.max(0, Math.min(cachedTrackPositions.length - 1, Math.floor(number(playbackIndex, 0))));
+      const positions = cachedTrackPositions.slice(0, endIndex + 1);
+      if (positions.length < 2) {
         if (viewerInstance.entities.has(TRACK_ENTITY_ID)) viewerInstance.entities.remove(TRACK_ENTITY_ID);
         return;
       }
-      const positions = points
-        .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
-        .map((point) => [point.longitude, point.latitude, Number.isFinite(point.altitude) ? point.altitude : 0]);
-      if (positions.length < 2) return;
       const isNewTrack = !viewerInstance.entities.has(TRACK_ENTITY_ID);
       const entity = {
         id: TRACK_ENTITY_ID,
         name: '最近三天历史轨迹',
         type: 'polyline',
         positions,
-        heightReference: 'clamp-to-ground',
-        groundOffset: 2,
+        // Playback changes several times per second. Absolute recorded heights
+        // avoid restarting asynchronous terrain-clamp jobs on every index and
+        // on every camera-follow LOD revision.
+        heightReference: 'absolute',
         symbol: { color: '#25d9ff', width: 4, opacity: 0.96, occlusion: 'overlay' },
         properties: { source: 'android-history', pointCount: positions.length },
       };
       this.upsertEntity(entity);
-      if (isNewTrack) {
+      if (isNewTrack && followMode !== 'playback') {
         const first = positions[0];
         viewerInstance.flyTo({ longitude: first[0], latitude: first[1], altitude: 4000, pitch: -62, heading: 0, duration: 650 });
         this.reportStatus(this.resolveContainer(), '轨迹回放已开始，路线将随回放位置逐步延伸', 'success');
       }
     },
-    applyPlayback(value) {
+    applyFollowCamera(point) {
+      if (!viewerInstance || !point || !Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) return;
+      if (Number.isFinite(point.heading)) {
+        followHeadingSamples.push(((point.heading % 360) + 360) % 360);
+        followHeadingSamples = followHeadingSamples.slice(-30);
+      }
+      const routeHeading = stableFollowHeading();
+      if (routeHeading !== null) followStableHeading = routeHeading;
+      viewerInstance.flyTo({
+        longitude: point.longitude,
+        latitude: point.latitude,
+        // The SDK interprets altitude as clearance above sampled terrain and
+        // adds terrain height internally; do not add the GPS altitude again.
+        altitude: FOLLOW_CLEARANCE_METERS,
+        pitch: -89.9,
+        heading: followStableHeading,
+        duration: 0,
+      });
+    },
+    followPoint(point, immediate = false) {
+      if (!viewerInstance || followMode === 'none' || !point || !Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) return;
+      followCameraPoint = {
+        longitude: point.longitude,
+        latitude: point.latitude,
+        altitude: point.altitude,
+        heading: point.heading,
+      };
+      const now = performance.now();
+      const elapsed = now - lastFollowCameraAt;
+      if (immediate || elapsed >= FOLLOW_CAMERA_INTERVAL_MS) {
+        if (followCameraTimer !== null) clearTimeout(followCameraTimer);
+        followCameraTimer = null;
+        const target = followCameraPoint;
+        followCameraPoint = null;
+        lastFollowCameraAt = now;
+        this.applyFollowCamera(target);
+        return;
+      }
+      if (followCameraTimer !== null) return;
+      followCameraTimer = setTimeout(() => {
+        followCameraTimer = null;
+        if (!viewerInstance || followMode === 'none' || !followCameraPoint) return;
+        const target = followCameraPoint;
+        followCameraPoint = null;
+        lastFollowCameraAt = performance.now();
+        this.applyFollowCamera(target);
+      }, Math.max(0, FOLLOW_CAMERA_INTERVAL_MS - elapsed));
+    },
+    applyPlayback(value, fly = false) {
       let point;
       try { point = value ? JSON.parse(value) : null; } catch { point = null; }
       if (!point || !Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) {
@@ -775,14 +893,14 @@ export default {
         id: PLAYBACK_ENTITY_ID,
         name: '轨迹回放位置',
         type: 'point',
-        position: [point.longitude, point.latitude, Number.isFinite(point.altitude) ? point.altitude : 0],
-        heightReference: 'clamp-to-ground',
-        groundOffset: 4,
+        position: [point.longitude, point.latitude, (Number.isFinite(point.altitude) ? point.altitude : 0) + 8],
+        heightReference: 'absolute',
         symbol: { color: '#ffffff', size: 32, icon: { url: PLAYBACK_POINT_ICON_URL, sourceHeading: 0 }, alignment: 'screen', occlusion: 'overlay' },
         label: { text: point.recordedAt ? new Date(point.recordedAt).toLocaleString() : '轨迹回放', color: '#ffffff', haloColor: '#0b2430', fontSize: 14, occlusion: 'overlay' },
-        properties: { source: 'android-playback', recordedAt: point.recordedAt || null },
+        properties: { source: 'android-playback', recordedAt: point.recordedAt || null, playbackIndex: number(point.playbackIndex, 0) },
       };
       this.upsertEntity(entity);
+      if (fly) this.followPoint(point);
     },
     applyLocation(value, fly) {
       let point;
@@ -800,7 +918,7 @@ export default {
           color: '#ffffff',
           size: 36,
           icon: { url: CURRENT_LOCATION_ICON_URL, sourceHeading: 0 },
-          heading: 0,
+          heading: Number.isFinite(point.heading) ? point.heading : 0,
           alignment: 'map',
           occlusion: 'overlay',
         },
@@ -816,13 +934,22 @@ export default {
       };
       this.upsertEntity(entity);
       viewerInstance.selectEntity(LOCATION_ENTITY_ID);
-      if (fly) viewerInstance.flyTo({ longitude: point.longitude, latitude: point.latitude, altitude: 4500, pitch: -58, heading: 0, duration: 900 });
+      if (fly) this.followPoint(point);
     },
     destroyViewer() {
       viewportCleanup?.();
       if (cameraFeedbackTimer !== null) clearInterval(cameraFeedbackTimer);
       cameraFeedbackTimer = null;
       lastFeedbackPitch = null;
+      if (followCameraTimer !== null) clearTimeout(followCameraTimer);
+      followCameraTimer = null;
+      followCameraPoint = null;
+      lastFollowCameraAt = 0;
+      cachedTrackPayload = '';
+      cachedTrackPositions = [];
+      followMode = 'none';
+      followHeadingSamples = [];
+      followStableHeading = 0;
       if (!viewerInstance) return;
       viewerInstance.destroy();
       viewerInstance = null;

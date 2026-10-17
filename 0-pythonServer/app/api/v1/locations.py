@@ -9,7 +9,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 
 from ...models import CurrentLocation, LocationSetting, LocationShare, Terminal, TrackSegment, User, utc_now
 from ...schemas import (
@@ -214,36 +214,58 @@ def upload_points(payload: LocationPointsUploadRequest, db: DbSession, session: 
     if aware(points[0].recorded_at) < now - MAX_HISTORY or aware(points[-1].recorded_at) > now + timedelta(minutes=5):
         raise HTTPException(status_code=422, detail="位置时间超出允许范围")
 
+    # A disconnected/mobile client must not leave a long queue of writers
+    # waiting on the same trajectory segment. SET LOCAL is transaction-scoped
+    # and is safe with PgBouncer transaction pooling.
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        db.execute(text("SET LOCAL lock_timeout = '10s'"))
+
     accepted = 0
+    segment: TrackSegment | None = None
+    segment_date = None
     for point in points:
         recorded_at = aware(point.recorded_at)
         track_date = recorded_at.astimezone(SHANGHAI).date()
-        segment = db.scalar(
-            select(TrackSegment)
-            .where(
-                TrackSegment.user_id == session.user_id,
-                TrackSegment.terminal_id == terminal.id,
-                TrackSegment.track_date == track_date,
-                TrackSegment.frequency_seconds == setting.write_interval_seconds,
-                TrackSegment.point_count < MAX_SEGMENT_POINTS,
-            )
-            .order_by(TrackSegment.ended_at.desc())
-            .with_for_update()
+        needs_segment = (
+            segment is None
+            or segment_date != track_date
+            or segment.point_count >= MAX_SEGMENT_POINTS
+            or recorded_at - aware(segment.ended_at) > timedelta(minutes=5)
         )
-        if segment is None or recorded_at - aware(segment.ended_at) > timedelta(minutes=5):
-            segment = TrackSegment(
-                segment_uuid=str(uuid4()),
-                user_id=session.user_id,
-                terminal_id=terminal.id,
-                track_date=track_date,
-                frequency_seconds=setting.write_interval_seconds,
-                started_at=recorded_at,
-                ended_at=recorded_at,
-                point_count=0,
-                points=[],
+        if needs_segment:
+            # Flush only at an actual segment boundary. The old implementation
+            # selected the same segment once per point; a five-minute batch at
+            # 1-second sampling therefore performed about 300 redundant SELECTs.
+            if segment is not None:
+                db.flush()
+            segment = db.scalar(
+                select(TrackSegment)
+                .where(
+                    TrackSegment.user_id == session.user_id,
+                    TrackSegment.terminal_id == terminal.id,
+                    TrackSegment.track_date == track_date,
+                    TrackSegment.frequency_seconds == setting.write_interval_seconds,
+                    TrackSegment.point_count < MAX_SEGMENT_POINTS,
+                )
+                .order_by(TrackSegment.ended_at.desc())
+                .with_for_update()
             )
-            db.add(segment)
-            db.flush()
+            if segment is None or recorded_at - aware(segment.ended_at) > timedelta(minutes=5):
+                segment = TrackSegment(
+                    segment_uuid=str(uuid4()),
+                    user_id=session.user_id,
+                    terminal_id=terminal.id,
+                    track_date=track_date,
+                    frequency_seconds=setting.write_interval_seconds,
+                    started_at=recorded_at,
+                    ended_at=recorded_at,
+                    point_count=0,
+                    points=[],
+                )
+                db.add(segment)
+                db.flush()
+            segment_date = track_date
         segment.points = [*segment.points, point_dict(point)]
         segment.point_count = len(segment.points)
         segment.started_at = min(aware(segment.started_at), recorded_at)

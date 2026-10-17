@@ -265,7 +265,10 @@ class LocationPointInput(BaseModel):
 class LocationPointsUploadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    points: list[LocationPointInput] = Field(min_length=1, max_length=100)
+    # Five minutes at the fastest supported 1-second sampling cadence is only
+    # 300 points. The larger ceiling also lets an offline terminal drain a
+    # bounded backlog without creating a burst of tiny transactions.
+    points: list[LocationPointInput] = Field(min_length=1, max_length=1000)
 
 
 class LocationUploadResponse(BaseModel):

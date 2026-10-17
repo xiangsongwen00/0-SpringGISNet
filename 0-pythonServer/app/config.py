@@ -27,6 +27,16 @@ class Settings(BaseModel):
     refresh_token_days: int = 30
     cors_origins: tuple[str, ...] = ()
     amap_web_service_key: str = ""
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
+    database_pool_timeout_seconds: int = 10
+    database_pool_recycle_seconds: int = 300
+    database_connect_timeout_seconds: int = 5
+    log_level: str = "INFO"
+    log_directory: str = "logs"
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 5
+    slow_request_ms: int = 1000
 
 
 def _read_ini() -> ConfigParser:
@@ -161,5 +171,45 @@ def get_settings() -> Settings:
         ),
         cors_origins=_parse_cors_origins(origins),
         amap_web_service_key=_read_amap_web_service_key(ini),
+        database_pool_size=int(os.getenv(
+            "SPRINGGIS_DATABASE_POOL_SIZE",
+            ini.get("database", "pool_size", fallback="5"),
+        )),
+        database_max_overflow=int(os.getenv(
+            "SPRINGGIS_DATABASE_MAX_OVERFLOW",
+            ini.get("database", "max_overflow", fallback="5"),
+        )),
+        database_pool_timeout_seconds=int(os.getenv(
+            "SPRINGGIS_DATABASE_POOL_TIMEOUT_SECONDS",
+            ini.get("database", "pool_timeout_seconds", fallback="10"),
+        )),
+        database_pool_recycle_seconds=int(os.getenv(
+            "SPRINGGIS_DATABASE_POOL_RECYCLE_SECONDS",
+            ini.get("database", "pool_recycle_seconds", fallback="300"),
+        )),
+        database_connect_timeout_seconds=int(os.getenv(
+            "SPRINGGIS_DATABASE_CONNECT_TIMEOUT_SECONDS",
+            ini.get("database", "connect_timeout_seconds", fallback="5"),
+        )),
+        log_level=os.getenv(
+            "SPRINGGIS_LOG_LEVEL",
+            ini.get("logging", "level", fallback="INFO"),
+        ).upper(),
+        log_directory=os.getenv(
+            "SPRINGGIS_LOG_DIRECTORY",
+            ini.get("logging", "directory", fallback="logs"),
+        ),
+        log_max_bytes=int(os.getenv(
+            "SPRINGGIS_LOG_MAX_BYTES",
+            ini.get("logging", "max_bytes", fallback=str(10 * 1024 * 1024)),
+        )),
+        log_backup_count=int(os.getenv(
+            "SPRINGGIS_LOG_BACKUP_COUNT",
+            ini.get("logging", "backup_count", fallback="5"),
+        )),
+        slow_request_ms=int(os.getenv(
+            "SPRINGGIS_SLOW_REQUEST_MS",
+            ini.get("logging", "slow_request_ms", fallback="1000"),
+        )),
     )
 

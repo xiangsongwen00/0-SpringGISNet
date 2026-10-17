@@ -62,8 +62,10 @@
           ref="mapRef"
           immersive
           :point="locationState.lastPoint"
-          :track-points="playbackTrackPoints"
+          :track-points="historyTrackPoints"
           :playback-point="playbackPoint"
+          :playback-index="playbackIndex"
+          @follow-mode-change="handleFollowModeChange"
         />
 
         <view :class="['map-home-header', { active: activeModule === 'permission' }]" @click="toggleModule('permission')">
@@ -104,7 +106,9 @@
         </view>
         <view v-if="locationState.lastPoint" class="location-card">
           <text>{{ locationState.lastPoint.latitude.toFixed(6) }}, {{ locationState.lastPoint.longitude.toFixed(6) }}</text>
-          <text>精度 {{ locationState.lastPoint.accuracy?.toFixed(0) || '—' }} 米 · {{ formatLocationTime(locationState.lastUploadedAt) }}</text>
+          <text>精度 {{ locationState.lastPoint.accuracy?.toFixed(0) || '—' }} 米 · 本地 {{ formatLocationTime(locationState.lastCapturedAt) }}</text>
+          <text>{{ locationState.coordinatesType.toUpperCase() }} · fix 年龄 {{ locationState.fixAgeMs === null ? '未知' : `${Math.round(locationState.fixAgeMs / 1000)} 秒` }}</text>
+          <text>服务器 {{ formatLocationTime(locationState.lastUploadedAt) }} · 待补传 {{ locationState.pendingCount }} 点</text>
         </view>
         <text v-else class="muted">尚未上传位置</text>
         <text v-if="locationState.error" class="error">{{ locationState.error }}</text>
@@ -132,6 +136,9 @@
                 <view class="playback-select">速度 {{ playbackSpeedLabels[playbackSpeedIndex] }}</view>
               </picker>
             </view>
+            <view :class="['playback-follow', { active: playbackFollowEnabled }]" @click="togglePlaybackFollow">
+              {{ playbackFollowEnabled ? '关闭回放追踪' : '开启回放追踪' }}
+            </view>
             <view class="playback-recycle" @click="recyclePlayback">回收轨迹线与回放图标</view>
           </template>
           <text v-else class="playback-summary">支持读取并动画回放本人最近三天内的历史轨迹。</text>
@@ -148,13 +155,20 @@
         <text class="section-title">认证终端</text>
         <text class="description">私钥由 Android Keystore 生成并保存在本机。初次绑定或迁移时，还必须输入 PC 账户管理页下发的 8-12 位授权码。</text>
         <template v-if="!terminalBound">
-          <view class="binding-website-help">
+          <view v-if="terminalKnownLocally" class="binding-website-help binding-website-help--known">
+            <text>已识别到当前登录用户曾在本机完成绑定，正在使用 Android Keystore 固定密钥恢复终端会话。</text>
+            <text>不会因为登录令牌过期而要求重新绑定；若服务器明确撤销该终端，才需要重新生成授权码。</text>
+            <button class="binding-website-button" :disabled="busy" @click="retryTerminalRecovery">重新验证本机绑定</button>
+          </view>
+          <view v-else class="binding-website-help">
             <text>当前设备尚未绑定。请先在电脑浏览器进入“春秋GIS”，登录同一账户并在账户管理中生成绑定授权码。</text>
             <text class="binding-website-url">{{ officialWebsiteUrl }}</text>
             <button class="binding-website-button" @click="openOfficialWebsite">打开春秋GIS官网</button>
           </view>
-          <input v-model="bindingCode" class="authorization-input" maxlength="12" placeholder="8-12 位绑定 / 迁移授权码" />
-          <button class="secondary" :disabled="busy || bindingCode.length < 8" @click="bindTerminal">绑定 / 迁移到当前设备</button>
+          <template v-if="!terminalKnownLocally">
+            <input v-model="bindingCode" class="authorization-input" maxlength="12" placeholder="8-12 位绑定 / 迁移授权码" />
+            <button class="secondary" :disabled="busy || bindingCode.length < 8" @click="bindTerminal">绑定 / 迁移到当前设备</button>
+          </template>
         </template>
         <view v-else class="terminal-summary">
           <text>此设备已绑定</text><text class="muted">不采集 IMEI、MAC 或设备序列号。</text>
@@ -166,6 +180,15 @@
           <button class="secondary" :disabled="busy" @click="generateMigrationCode">生成迁移授权码</button>
           <view v-if="migrationCode" class="authorization-result"><text>{{ migrationCode }}</text><text>一次性，10 分钟内有效且不自动更换；请输入新终端。</text></view>
         </view>
+      </view>
+      <view class="drawer-section">
+        <text class="section-title">后台持续定位</text>
+        <text class="description">开启后，应用切到后台时保留持续定位订阅和本地待上传队列；关闭后，切到后台即暂停采集，回到前台自动恢复。荣耀系统仍需允许本应用后台运行。</text>
+        <view class="background-tracking-row">
+          <text>{{ backgroundTrackingEnabled ? '允许后台继续记录' : '仅前台记录' }}</text>
+          <switch :checked="backgroundTrackingEnabled" color="#0e7c93" @change="changeBackgroundTracking" />
+        </view>
+        <text class="privacy">此开关不会绕过系统权限，也不会在用户关闭轨迹记录后继续定位。强制结束应用后，可靠的长期锁屏记录仍需要原生定位前台服务。</text>
       </view>
       <view v-if="bindingLogs.length" class="drawer-section diagnostic-panel">
         <view class="diagnostic-title-row">
@@ -221,12 +244,13 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { onShow } from '@dcloudio/uni-app';
+import { onHide, onShow } from '@dcloudio/uni-app';
 import SpringGisMap from '../../components/SpringGisMap.vue';
 import { ApiError, confirmTerminalSession, createMigrationAuthorizationCode, createQuickCode, createTerminalRevokeCode, confirmTerminalBinding, getCurrentTerminal, getLocationSetting, getMySecurityQuestions, getMyTrackHistory, LOCATION_INTERVALS, login, logout as logoutApi, refreshLogin, register as registerApi, startTerminalBinding, startTerminalSession, updateLocationSetting, type AuthSession, type LocationInterval, type LocationPoint, type SecurityQuestion } from '../../services/api';
 import { ensureTerminalKey, getNativeKeyDiagnostics, isNativeKeyAvailable, signTerminalPayload } from '../../services/keystore';
 import { LocationTracker, type LocationTrackerState } from '../../services/locationTracker';
 import { clearRefreshSession, loadRefreshToken, saveRefreshSession } from '../../services/sessionStorage';
+import { getTerminalReceipt, hasMatchingTerminalReceipt, removeTerminalReceipt, saveTerminalReceipt } from '../../services/terminalReceipt';
 import { REGISTRATION_SECURITY_QUESTIONS } from '../../config/securityQuestions';
 
 const username = ref('');
@@ -250,13 +274,17 @@ const session = ref<AuthSession | null>(null);
 const restoringSession = ref(true);
 const hasSavedSession = ref(Boolean(loadRefreshToken()));
 const terminalBound = ref(false);
+const terminalKnownLocally = ref(false);
 const officialWebsiteUrl = 'http://8.137.36.114:8000/';
 const bindingReminderShown = ref(false);
 const activeModule = ref<'track' | 'map' | 'permission' | null>(null);
 const locationIntervals = [...LOCATION_INTERVALS];
 const locationInterval = ref<LocationInterval>(2);
 const locationIntervalIndex = ref(1);
-const locationState = ref<LocationTrackerState>({ running: false, lastPoint: null, lastUploadedAt: null, error: '' });
+const locationState = ref<LocationTrackerState>({ running: false, lastPoint: null, lastCapturedAt: null, lastUploadedAt: null, pendingCount: 0, fixAgeMs: null, coordinatesType: 'wgs84', error: '' });
+const BACKGROUND_TRACKING_KEY = 'springgis.location.background.v1';
+const backgroundTrackingEnabled = ref(Boolean(uni.getStorageSync(BACKGROUND_TRACKING_KEY)));
+let trackingPausedForBackground = false;
 const historyWindows = [60 * 60 * 1000, 6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 3 * 24 * 60 * 60 * 1000];
 const historyWindowLabels = ['最近 1 小时', '最近 6 小时', '最近 24 小时', '最近 3 天'];
 const historyWindowIndex = ref(2);
@@ -265,18 +293,18 @@ const historyLoading = ref(false);
 const historyError = ref('');
 const playbackIndex = ref(0);
 const playbackPlaying = ref(false);
+const playbackFollowEnabled = ref(false);
 const playbackSpeedOptions = [1, 2, 5, 10];
 const playbackSpeedLabels = playbackSpeedOptions.map((speed) => `${speed}×`);
 const playbackSpeedIndex = ref(1);
 const playbackPoint = computed(() => historyTrackPoints.value[playbackIndex.value] ?? null);
-const playbackTrackPoints = computed(() => {
-  if (historyTrackPoints.value.length < 2) return [];
-  return historyTrackPoints.value.slice(0, Math.min(playbackIndex.value + 1, historyTrackPoints.value.length));
-});
 const playbackProgress = computed(() => historyTrackPoints.value.length <= 1
   ? 0
   : Math.round(playbackIndex.value / (historyTrackPoints.value.length - 1) * 1000));
-const mapRef = ref<{ recyclePlaybackEntities: () => void } | null>(null);
+const mapRef = ref<{
+  recyclePlaybackEntities: () => void;
+  setPlaybackFollow: (enabled: boolean) => void;
+} | null>(null);
 let playbackTimer: ReturnType<typeof setInterval> | null = null;
 let locationTracker: LocationTracker | null = null;
 const bindingLogs = ref<string[]>([]);
@@ -292,6 +320,9 @@ const revokeVerificationRemaining = ref(0);
 let quickTimer: ReturnType<typeof setInterval> | null = null;
 let quickExpiresAt = 0;
 let statusTimer: ReturnType<typeof setInterval> | null = null;
+let remoteStateSyncPromise: Promise<void> | null = null;
+let securityQuestionsPromise: Promise<void> | null = null;
+let appIsVisible = true;
 let revokeVerificationTimer: ReturnType<typeof setInterval> | null = null;
 let revokeVerificationExpiresAt = 0;
 let accessExpiresAt = 0;
@@ -302,7 +333,11 @@ let authGeneration = 0;
 watch(bindingCode, (value) => { const normalized = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12); if (normalized !== value) bindingCode.value = normalized; });
 
 function toggleModule(module: 'track' | 'map' | 'permission') {
-  activeModule.value = activeModule.value === module ? null : module;
+  const opening = activeModule.value !== module;
+  activeModule.value = opening ? module : null;
+  // Security questions are loaded only for the account/permission workflow,
+  // never by the terminal heartbeat.
+  if (opening && module === 'permission') void refreshSecurityQuestions();
 }
 
 function openOfficialWebsite() {
@@ -346,12 +381,14 @@ function resetLocalSession(removeStoredSession = true) {
   locationTracker?.stop(); locationTracker = null;
   clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer();
   session.value = null; accessExpiresAt = 0; terminalBound.value = false;
+  terminalKnownLocally.value = false;
   bindingReminderShown.value = false;
   quickCode.value = ''; bindingCode.value = ''; migrationCode.value = '';
   migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = [];
   revokeAuthorizationCode.value = ''; revokeVerificationCode.value = '';
   activeModule.value = null;
-  locationState.value = { running: false, lastPoint: null, lastUploadedAt: null, error: '' };
+  trackingPausedForBackground = false;
+  locationState.value = { running: false, lastPoint: null, lastCapturedAt: null, lastUploadedAt: null, pendingCount: 0, fixAgeMs: null, coordinatesType: 'wgs84', error: '' };
   clearPlaybackTimer(); historyTrackPoints.value = []; playbackIndex.value = 0; historyError.value = '';
   if (removeStoredSession) {
     clearRefreshSession();
@@ -361,6 +398,7 @@ function resetLocalSession(removeStoredSession = true) {
 
 function applySession(authenticated: AuthSession) {
   session.value = authenticated;
+  terminalKnownLocally.value = Boolean(getTerminalReceipt(authenticated.user.user_uuid));
   locationTracker?.setAccessToken(authenticated.access_token);
   saveRefreshSession(authenticated);
   hasSavedSession.value = Boolean(authenticated.refresh_token);
@@ -488,8 +526,19 @@ async function restoreLocationTracking(authenticated = session.value) {
 }
 
 function startTracker(accessToken: string) {
-  locationTracker?.stop();
-  locationTracker = new LocationTracker(accessToken, locationInterval.value, (state) => { locationState.value = state; });
+  if (!session.value) return;
+  if (locationTracker) {
+    locationTracker.setAccessToken(accessToken);
+    locationTracker.setInterval(locationInterval.value);
+    locationTracker.start();
+    return;
+  }
+  locationTracker = new LocationTracker(
+    accessToken,
+    locationInterval.value,
+    session.value.user.user_uuid,
+    (state) => { locationState.value = state; },
+  );
   locationTracker.start();
 }
 
@@ -505,7 +554,8 @@ async function startLocationTracking() {
 }
 
 async function stopLocationTracking() {
-  locationTracker?.stop(); locationTracker = null;
+  locationTracker?.stop();
+  trackingPausedForBackground = false;
   if (!session.value) return;
   busy.value = true;
   try { await updateLocationSetting(session.value.access_token, locationInterval.value, false); }
@@ -520,6 +570,35 @@ async function changeLocationInterval(event: { detail: { value: string | number 
   locationInterval.value = next; locationIntervalIndex.value = index;
   locationTracker?.setInterval(next);
   if (session.value) await updateLocationSetting(session.value.access_token, next, locationState.value.running);
+}
+
+function changeBackgroundTracking(event: Event) {
+  const checked = (event as Event & { detail?: { value?: boolean } }).detail?.value;
+  backgroundTrackingEnabled.value = Boolean(checked);
+  uni.setStorageSync(BACKGROUND_TRACKING_KEY, backgroundTrackingEnabled.value);
+  if (!backgroundTrackingEnabled.value) return;
+  // #ifdef APP-PLUS
+  const platform = String(uni.getSystemInfoSync().platform || '').toLowerCase();
+  if (platform !== 'android') return;
+  plus.android.requestPermissions(
+    ['android.permission.ACCESS_BACKGROUND_LOCATION'],
+    (result) => {
+      const denied = [...(result.deniedPresent || []), ...(result.deniedAlways || [])];
+      if (denied.length) {
+        uni.showModal({
+          title: '需要后台定位权限',
+          content: '系统未授予后台位置权限。请在系统设置中允许春秋GIS使用位置信息，并在荣耀应用启动管理中允许后台运行。',
+          showCancel: false,
+        });
+      }
+    },
+    () => uni.showModal({
+      title: '无法申请后台定位',
+      content: '请在系统设置中手动允许春秋GIS后台使用位置。',
+      showCancel: false,
+    }),
+  );
+  // #endif
 }
 
 function formatLocationTime(value: string | null): string {
@@ -590,8 +669,28 @@ function togglePlayback() {
 }
 
 function stopPlayback() {
+  playbackFollowEnabled.value = false;
+  mapRef.value?.setPlaybackFollow(false);
   clearPlaybackTimer();
   playbackIndex.value = 0;
+}
+
+function handleFollowModeChange(mode: 'none' | 'live' | 'playback') {
+  playbackFollowEnabled.value = mode === 'playback';
+}
+
+function togglePlaybackFollow() {
+  if (historyTrackPoints.value.length < 2 || !playbackPoint.value) {
+    uni.showToast({ title: '请先读取至少两个轨迹点', icon: 'none' });
+    return;
+  }
+  const enabled = !playbackFollowEnabled.value;
+  playbackFollowEnabled.value = enabled;
+  mapRef.value?.setPlaybackFollow(enabled);
+  // Enabling camera follow is also an explicit request to watch the replay:
+  // resume a paused replay, or restart from the beginning after completion.
+  // Disabling follow only releases the camera and never pauses the animation.
+  if (enabled && !playbackPlaying.value) togglePlayback();
 }
 
 function recyclePlayback() {
@@ -599,6 +698,8 @@ function recyclePlayback() {
   playbackIndex.value = 0;
   historyTrackPoints.value = [];
   historyError.value = '';
+  playbackFollowEnabled.value = false;
+  mapRef.value?.setPlaybackFollow(false);
   mapRef.value?.recyclePlaybackEntities();
 }
 
@@ -608,10 +709,21 @@ function seekPlayback(event: { detail: { value: number } }) {
   playbackIndex.value = Math.round(maximum * Number(event.detail.value) / 1000);
 }
 
-async function refreshSecurityQuestions(authenticated = session.value) {
-  if (!authenticated) return;
-  try { securityQuestions.value = await getMySecurityQuestions(authenticated.access_token); }
-  catch (reason) { console.info('[security-questions-sync]', reason instanceof Error ? reason.message : String(reason)); }
+function refreshSecurityQuestions(authenticated = session.value): Promise<void> {
+  if (!authenticated) return Promise.resolve();
+  if (securityQuestionsPromise) return securityQuestionsPromise;
+  const userUuid = authenticated.user.user_uuid;
+  securityQuestionsPromise = (async () => {
+    try {
+      const questions = await getMySecurityQuestions(authenticated.access_token);
+      if (session.value?.user.user_uuid === userUuid) securityQuestions.value = questions;
+    } catch (reason) {
+      console.info('[security-questions-load]', reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      securityQuestionsPromise = null;
+    }
+  })();
+  return securityQuestionsPromise;
 }
 
 async function attachExistingTerminal(authenticated: AuthSession) {
@@ -619,11 +731,14 @@ async function attachExistingTerminal(authenticated: AuthSession) {
   try {
     const alias = `springgis_${authenticated.user.user_uuid}`;
     const publicKey = await ensureTerminalKey(alias);
+    terminalKnownLocally.value = hasMatchingTerminalReceipt(authenticated.user.user_uuid, publicKey);
     const challenge = await startTerminalSession(authenticated.access_token, publicKey);
     const signature = signTerminalPayload(alias, challenge.nonce);
     const terminal = await confirmTerminalSession(authenticated.access_token, challenge.challenge_id, challenge.nonce, signature);
     terminalBound.value = terminal.status === 1;
     if (terminalBound.value) {
+      saveTerminalReceipt(authenticated.user.user_uuid, publicKey, terminal);
+      terminalKnownLocally.value = true;
       bindingReminderShown.value = false;
       await generateQuickCode();
     }
@@ -631,7 +746,24 @@ async function attachExistingTerminal(authenticated: AuthSession) {
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : String(reason);
     if (!message.includes('尚未绑定')) console.info('[terminal-session]', message);
-    return message.includes('尚未绑定') || message.includes('未绑定') ? false : null;
+    const serverSaysUnbound = message.includes('尚未绑定') || message.includes('未绑定');
+    // A local receipt tied to the same Keystore public key proves that this
+    // user previously bound this installation. Keep retrying session recovery
+    // instead of incorrectly sending the user through first-time binding.
+    return serverSaysUnbound && !terminalKnownLocally.value ? false : null;
+  }
+}
+
+async function retryTerminalRecovery() {
+  if (!session.value || busy.value) return;
+  busy.value = true;
+  try {
+    const result = await attachExistingTerminal(session.value);
+    if (result === true) uni.showToast({ title: '本机绑定已恢复', icon: 'success' });
+    else if (result === false) showBindingWebsiteReminder(true);
+    else uni.showModal({ title: '暂未恢复', content: '已保留本机绑定凭据，请检查网络后重试。', showCancel: false });
+  } finally {
+    busy.value = false;
   }
 }
 
@@ -674,6 +806,8 @@ async function bindTerminal() {
       signature,
     );
     terminalBound.value = terminal.status === 1;
+    saveTerminalReceipt(session.value.user.user_uuid, publicKey, terminal);
+    terminalKnownLocally.value = true;
     bindingReminderShown.value = false;
     bindingCode.value = '';
     appendBindingLog(`终端绑定成功：${terminal.system_name}`);
@@ -758,9 +892,8 @@ async function generateRevokeCode(codeType: 'authorization_code' | 'verification
   } finally { busy.value = false; }
 }
 
-async function syncRemoteState() {
-  if (!session.value) return;
-  await refreshSecurityQuestions();
+async function performRemoteStateSync() {
+  if (!session.value || !appIsVisible) return;
   if (!terminalBound.value) {
     const bindingState = await attachExistingTerminal(session.value);
     if (bindingState === false) showBindingWebsiteReminder();
@@ -769,6 +902,11 @@ async function syncRemoteState() {
   try {
     const terminal = await getCurrentTerminal(session.value.access_token);
     terminalBound.value = terminal.status === 1;
+    if (!terminalBound.value) {
+      removeTerminalReceipt(session.value.user.user_uuid);
+      terminalKnownLocally.value = false;
+      showBindingWebsiteReminder(true);
+    }
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : String(reason);
     if (message.includes('失效') || message.includes('未绑定') || message.includes('登录')) {
@@ -777,6 +915,18 @@ async function syncRemoteState() {
       if (message.includes('未绑定') || message.includes('失效')) showBindingWebsiteReminder();
     }
   }
+}
+
+function syncRemoteState(): Promise<void> {
+  if (!session.value || !appIsVisible) return Promise.resolve();
+  // A request can legitimately take longer than the heartbeat interval on a
+  // weak mobile network. Reuse the in-flight promise instead of creating an
+  // overlapping request storm that exhausts the API and database pools.
+  if (remoteStateSyncPromise) return remoteStateSyncPromise;
+  remoteStateSyncPromise = performRemoteStateSync().finally(() => {
+    remoteStateSyncPromise = null;
+  });
+  return remoteStateSyncPromise;
 }
 
 async function signOut() {
@@ -802,8 +952,24 @@ async function resumeSession() {
 }
 
 void restorePersistedSession();
-onShow(() => void resumeSession());
-statusTimer = setInterval(() => void syncRemoteState(), 10000);
+onShow(() => {
+  appIsVisible = true;
+  void (async () => {
+    await resumeSession();
+    if (trackingPausedForBackground && session.value && terminalBound.value) {
+      trackingPausedForBackground = false;
+      startTracker(session.value.access_token);
+    }
+  })();
+});
+onHide(() => {
+  appIsVisible = false;
+  if (!backgroundTrackingEnabled.value && locationTracker && locationState.value.running) {
+    trackingPausedForBackground = true;
+    locationTracker.stop();
+  }
+});
+statusTimer = setInterval(() => void syncRemoteState(), 30000);
 onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
 </script>
 
@@ -867,9 +1033,11 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
 .account-card { display: flex; align-items: center; justify-content: space-between; }.label { color: #7a949d; font-size: 23rpx; }.account-name { margin-top: 6rpx; font-size: 35rpx; font-weight: 700; }.status-pill { padding: 10rpx 18rpx; border-radius: 999rpx; background: #d7f0f5; color: #0e7c93; font-size: 23rpx; }
 .section-title { margin-bottom: 12rpx; font-size: 32rpx; font-weight: 700; }.authorization-input { width: 100%; margin-top: 24rpx; text-align: center; font-family: monospace; letter-spacing: 5rpx; }.quick-code-display { margin-top: 24rpx; padding: 24rpx; border-radius: 20rpx; background: #10272d; color: white; text-align: center; font-family: monospace; font-size: 54rpx; font-weight: 700; letter-spacing: 18rpx; }.quick-countdown { display: block; margin-top: 12rpx; color: #0e7c93; text-align: center; font-size: 24rpx; }.authorization-result { margin-top: 20rpx; padding: 20rpx; border-radius: 18rpx; background: #10272d; color: white; text-align: center; }.authorization-result text { display: block; }.authorization-result text:first-child { font-family: monospace; font-size: 40rpx; font-weight: 700; letter-spacing: 6rpx; }.authorization-result text:last-child { margin-top: 8rpx; color: #b9dce1; font-size: 22rpx; }
 .binding-website-help { margin-top: 22rpx; padding: 22rpx; border: 1rpx solid rgba(14,124,147,.22); border-radius: 20rpx; background: linear-gradient(145deg,#eefcff,#fff8ed); }
+.binding-website-help--known { border-color: rgba(37,217,255,.36); background: linear-gradient(145deg,#ecfbff,#f4fff8); }
 .binding-website-help > text { display: block; color: #31515b; font-size: 23rpx; line-height: 1.65; }
 .binding-website-url { margin-top: 12rpx; color: #0e7c93 !important; font-family: monospace; word-break: break-all; }
 .binding-website-button { margin-top: 18rpx; border: 0; border-radius: 999rpx; background: #0e7c93; color: #fff; font-size: 25rpx; }
+.background-tracking-row { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin-top: 22rpx; padding: 18rpx 20rpx; border-radius: 18rpx; background: #eef8fa; color: #214b56; font-size: 25rpx; font-weight: 700; }
 .diagnostic-panel { background: #10272d; color: #d7f0f5; }
 .diagnostic-title-row { display: flex; align-items: center; justify-content: space-between; }
 .diagnostic-title-row .section-title { color: #fff; }
@@ -895,6 +1063,8 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
 .playback-select,.playback-action { padding: 14rpx 18rpx; border: 1rpx solid rgba(14,124,147,.25); border-radius: 14rpx; background: white; color: #0e7c93; font-size: 22rpx; font-weight: 700; }
 .playback-action { background: #0e7c93; color: white; }
 .playback-action--muted { background: white; color: #6a7d82; }
+.playback-follow { margin-top: 14rpx; padding: 15rpx 18rpx; border: 1rpx solid rgba(14,124,147,.28); border-radius: 14rpx; background: #fff; color: #0e7c93; text-align: center; font-size: 22rpx; font-weight: 700; }
+.playback-follow.active { border-color: #25d9ff; background: #0e7c93; color: #fff; box-shadow: 0 0 0 4rpx rgba(37,217,255,.12); }
 .playback-recycle { margin-top: 14rpx; padding: 15rpx 18rpx; border: 1rpx solid rgba(181,44,44,.3); border-radius: 14rpx; background: rgba(181,44,44,.08); color: #a12d2d; text-align: center; font-size: 22rpx; font-weight: 700; }
 .playback-summary { display: block; margin: 16rpx 0 8rpx; color: #6a5a4e; font-size: 22rpx; line-height: 1.5; }
 
@@ -927,6 +1097,7 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
   .playback-row { gap: 6px; }
   .playback-select,.playback-action { padding: 7px 9px; border-radius: 8px; font-size: 11px; }
   .playback-recycle { margin-top: 7px; padding: 7px 9px; border-radius: 8px; font-size: 11px; }
+  .playback-follow { margin-top: 7px; padding: 7px 9px; border-radius: 8px; font-size: 11px; }
   .playback-summary { margin: 7px 0 3px; font-size: 11px; }
   .module-drawer .field { margin-top: 10px; }
   .module-drawer .field text { margin-bottom: 5px; font-size: 12px; }
@@ -934,6 +1105,7 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
   .binding-website-help { margin-top: 9px; padding: 10px; border-radius: 10px; }
   .binding-website-help > text { font-size: 11px; }
   .binding-website-button { min-height: 34px; margin-top: 8px; font-size: 12px; }
+  .background-tracking-row { gap: 8px; margin-top: 9px; padding: 8px 10px; border-radius: 9px; font-size: 12px; }
   .quick-code-display { margin-top: 10px; padding: 10px; border-radius: 10px; font-size: 25px; letter-spacing: 9px; }
   .quick-countdown { margin-top: 5px; font-size: 11px; }
 }
