@@ -1,4 +1,4 @@
-import { TerrainRgbProvider, Viewer } from 'spring-and-autumn-gis';
+import { TerrainRgbProvider, UrlTemplateRasterProvider, Viewer } from 'spring-and-autumn-gis';
 import apkEnvironment from '../../config/apk.env.json';
 import resourceConfig from '../../config/token.json';
 import { currentLocationIconUrl, playbackPointIconUrl } from './mapIconData.js';
@@ -6,6 +6,7 @@ import { currentLocationIconUrl, playbackPointIconUrl } from './mapIconData.js';
 const LOCATION_ENTITY_ID = 'springgis-current-device';
 const TRACK_ENTITY_ID = 'springgis-history-track';
 const PLAYBACK_ENTITY_ID = 'springgis-track-playback';
+const ANNOTATION_LAYER_ID = 'springgis-tianditu-annotation';
 // Android App WebViews cannot fetch file:///static/... URLs. Both images are
 // smaller than Vite's inline limit, so importing them embeds data URLs in the
 // RenderJS bundle and keeps entity texture loading independent of file://.
@@ -100,23 +101,13 @@ export default {
         const tool = button?.dataset?.tool;
         if (!tool) return;
         if (tool === 'home') {
-          // The stock reset restores a camera matrix captured before some
-          // Android orientation/layout changes. Fly to the configured initial
-          // view instead so the globe target is explicitly screen-centred.
+          // A fixed desktop altitude cannot fit the globe into the much
+          // narrower horizontal field of view of a portrait phone. Replace
+          // the stock reset with an aspect-aware, explicitly centred view.
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation();
-          const map = apkEnvironment.map || {};
-          this.resizeViewer(container);
-          viewerInstance?.flyTo({
-            longitude: number(map.initialView?.longitude, 106.55),
-            latitude: number(map.initialView?.latitude, 29.61),
-            altitude: number(map.initialView?.altitude, 18000000),
-            pitch: -90,
-            heading: 0,
-            duration: 650,
-          });
-          this.reportStatus(container, '已回到居中的初始视角', 'success');
+          this.resetGlobalView(container, true);
           return;
         }
         if (this.minimizedToolMode && tool === this.minimizedToolMode) {
@@ -230,6 +221,45 @@ export default {
       const activeButton = (container?.parentElement || container)?.querySelector?.('.sag-tools button[aria-pressed="true"]');
       if (activeButton) this.positionToolPanel(container, activeButton);
     },
+    globalViewAltitude(container) {
+      const map = apkEnvironment.map || {};
+      const configuredAltitude = number(map.initialView?.altitude, 18000000);
+      const rect = container?.getBoundingClientRect?.();
+      const width = Math.max(1, Number(rect?.width) || container?.clientWidth || 1);
+      const height = Math.max(1, Number(rect?.height) || container?.clientHeight || 1);
+      const aspect = width / height;
+      const verticalFov = number(viewerInstance?.engine?.camera?.fov, 50) * Math.PI / 180;
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+      const limitingFov = Math.min(verticalFov, horizontalFov);
+      // Occupy at most 72% of the limiting viewport dimension. This leaves
+      // room for the phone toolbar, safe areas and the current-location label.
+      const usableHalfFov = Math.max(0.01, limitingFov * 0.5 * 0.72);
+      const earthRadius = 6378137;
+      const fittedAltitude = earthRadius / Math.sin(usableHalfFov) - earthRadius;
+      return Math.max(configuredAltitude, fittedAltitude);
+    },
+    resetGlobalView(container, report = false) {
+      if (!viewerInstance || !container) return;
+      this.resizeViewer(container);
+      const map = apkEnvironment.map || {};
+      const altitude = this.globalViewAltitude(container);
+      viewerInstance.flyTo({
+        longitude: number(map.initialView?.longitude, 106.55),
+        latitude: number(map.initialView?.latitude, 29.61),
+        altitude,
+        pitch: -89.9,
+        heading: 0,
+        duration: 0,
+      });
+      this.scheduleViewportRefresh(container);
+      if (report) {
+        this.reportStatus(
+          container,
+          `已回到居中的全球视角，高度约 ${Math.round(altitude / 1000)} km`,
+          'success',
+        );
+      }
+    },
     scheduleViewportRefresh(container) {
       for (const timer of viewportTimers) clearTimeout(timer);
       viewportTimers = [0, 80, 240, 600].map((delay) => setTimeout(() => {
@@ -302,6 +332,16 @@ export default {
       const tiandituToken = resourceText(resourceConfig?.tianditu?.token);
       if (tiandituToken) {
         add({
+          id: 'tianditu-vector',
+          type: 'xyz',
+          scheme: 'xyz',
+          minLevel: 1,
+          maxLevel: 18,
+          levelOffset: -1.7,
+          url: `https://t0.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${encodeURIComponent(tiandituToken)}`,
+          attribution: '天地图',
+        }, '天地图矢量');
+        add({
           id: 'tianditu-imagery',
           type: 'xyz',
           scheme: 'xyz',
@@ -310,30 +350,30 @@ export default {
           levelOffset: -1.7,
           url: `https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${encodeURIComponent(tiandituToken)}`,
           attribution: '天地图',
-        }, '天地图影像');
+        }, '天地图卫星影像');
       }
 
-      const maptilerKey = resourceText(resourceConfig?.maptiler?.key);
-      if (maptilerKey) {
-        add({
-          id: 'maptiler-vector',
-          type: 'vector-style',
-          style: `https://api.maptiler.com/maps/streets-v4/style.json?key=${encodeURIComponent(maptilerKey)}`,
-          symbols: true,
-          levelOffset: -1.7,
-        }, 'MapTiler Streets');
-      }
-
-      const osm = resourceConfig?.osm || {};
-      const osmRasterUrl = resourceText(osm.rasterUrl);
-      const osmStyleUrl = resourceText(osm.styleUrl);
-      const osmAttribution = text(osm.attribution) || '© OpenStreetMap contributors';
-      if (osmRasterUrl) {
-        add({ id: 'osm-raster', type: 'xyz', url: osmRasterUrl, maxLevel: 19, attribution: osmAttribution }, 'OpenStreetMap 栅格');
-      }
-      if (osmStyleUrl) {
-        add({ id: 'osm-vector', type: 'vector-style', style: osmStyleUrl, symbols: true }, 'OpenStreetMap 矢量');
-      }
+      // Keep the SDK demo's Google satellite source available even when an
+      // older APK token.json has no google section. Configuration can still
+      // override the endpoint/subdomains without deciding whether the option
+      // exists at all.
+      const googleSatelliteUrl = resourceText(resourceConfig?.google?.urlTemplate)
+        || resourceText(resourceConfig?.google?.satelliteUrl)
+        || 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
+      const googleSubdomains = templateList(resourceConfig?.google?.subdomains);
+      add({
+        id: 'google-satellite',
+        type: 'provider',
+        provider: new UrlTemplateRasterProvider({
+          id: 'google-satellite',
+          urlTemplate: googleSatelliteUrl,
+          subdomains: googleSubdomains.length ? googleSubdomains : ['0', '1', '2', '3'],
+          minLevel: 0,
+          maxLevel: 20,
+          viewLevelOffset: -1.7,
+          attribution: text(resourceConfig?.google?.attribution) || 'Google Maps',
+        }),
+      }, 'Google 卫星影像');
 
       // Google satellite and every other custom service use the same standard
       // demo.basemaps structure as the SDK demo. No provider-specific top-level
@@ -371,6 +411,107 @@ export default {
       }
 
       return { definitions, names };
+    },
+    createBaseMapControls(container, basemaps, baseMapNames, initialBaseMap) {
+      const doc = container.ownerDocument || document;
+      const root = doc.createElement('div');
+      root.className = 'springgis-basemap-controls';
+      root.style.cssText = 'display:grid;gap:12px;min-width:220px;color:#d9f6ff;font-size:14px;';
+
+      const title = doc.createElement('div');
+      title.textContent = '主底图';
+      title.style.cssText = 'font-weight:700;color:#91eadc;';
+      const select = doc.createElement('select');
+      select.setAttribute('aria-label', '主底图');
+      select.style.cssText = 'width:100%;min-height:40px;padding:7px 10px;border:1px solid #31586a;border-radius:8px;background:#102733;color:#e7fbff;';
+      for (const definition of basemaps) {
+        const option = doc.createElement('option');
+        option.value = definition.id;
+        option.textContent = baseMapNames[definition.id] || definition.id;
+        select.append(option);
+      }
+      select.value = initialBaseMap || '';
+
+      const annotationLabel = doc.createElement('label');
+      annotationLabel.style.cssText = 'display:flex;align-items:center;gap:9px;min-height:36px;cursor:pointer;user-select:none;';
+      const annotationToggle = doc.createElement('input');
+      annotationToggle.type = 'checkbox';
+      annotationToggle.checked = resourceConfig?.tianditu?.annotationEnabledByDefault === true;
+      annotationToggle.style.cssText = 'width:18px;height:18px;accent-color:#48d7c7;';
+      const annotationText = doc.createElement('span');
+      annotationText.textContent = '天地图中文注记';
+      annotationLabel.append(annotationToggle, annotationText);
+
+      const status = doc.createElement('div');
+      status.style.cssText = 'min-height:18px;color:#94b8c4;font-size:12px;line-height:1.5;';
+      status.textContent = '注记可叠加到任一卫星底图。';
+      root.append(title, select, annotationLabel, status);
+
+      const annotationUrl = (baseMapId) => {
+        const token = resourceText(resourceConfig?.tianditu?.token);
+        if (!token) return '';
+        const vector = baseMapId === 'tianditu-vector';
+        const service = vector ? 'cva' : 'cia';
+        return `https://t0.tianditu.gov.cn/${service}_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${service}&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${encodeURIComponent(token)}`;
+      };
+      const syncAnnotation = () => {
+        if (!viewerInstance) return;
+        viewerInstance.engine.removeImageryLayer(ANNOTATION_LAYER_ID);
+        if (!annotationToggle.checked) {
+          status.textContent = '中文注记已关闭。';
+          return;
+        }
+        const activeBaseMap = viewerInstance.baseMap.id || select.value;
+        const urlTemplate = annotationUrl(activeBaseMap);
+        if (!urlTemplate) {
+          annotationToggle.checked = false;
+          status.textContent = '未配置天地图 token，无法加载中文注记。';
+          return;
+        }
+        const isVector = activeBaseMap === 'tianditu-vector';
+        const provider = new UrlTemplateRasterProvider({
+          id: `${ANNOTATION_LAYER_ID}-${isVector ? 'vector' : 'imagery'}`,
+          urlTemplate,
+          minLevel: 1,
+          maxLevel: 18,
+          viewLevelOffset: -1.7,
+          attribution: '天地图中文注记',
+        });
+        viewerInstance.engine.addImageryLayer(ANNOTATION_LAYER_ID, provider, {
+          overlay: true,
+          order: 10000,
+          surfaceOffset: 0.1,
+          maxCachedTiles: 512,
+          maxTextureBytes: 64 * 1024 * 1024,
+        });
+        status.textContent = isVector ? '已叠加天地图矢量中文注记。' : '已叠加天地图影像中文注记。';
+      };
+
+      select.addEventListener('change', async () => {
+        if (!viewerInstance) return;
+        select.disabled = true;
+        annotationToggle.disabled = true;
+        try {
+          await viewerInstance.setBaseMap(select.value);
+          syncAnnotation();
+          if (!annotationToggle.checked) status.textContent = `${baseMapNames[select.value] || select.value}已切换。`;
+        } catch {
+          select.value = viewerInstance.baseMap.id || initialBaseMap || '';
+          status.textContent = '底图切换失败，已保留原底图。';
+        } finally {
+          select.disabled = false;
+          annotationToggle.disabled = false;
+        }
+      });
+      annotationToggle.addEventListener('change', syncAnnotation);
+
+      return {
+        element: root,
+        sync(baseMapId) {
+          if (baseMapId) select.value = baseMapId;
+          syncAnnotation();
+        },
+      };
     },
     buildTerrain() {
       const terrain = resourceConfig?.demo?.terrain || {};
@@ -470,14 +611,17 @@ export default {
           viewerInstance = await Viewer.create(container, { ...viewerOptions, terrain: false });
         }
         const toolbarHost = container.parentElement || container;
+        const baseMapControls = this.createBaseMapControls(container, basemaps, baseMapNames, baseMap);
         viewerInstance.createToolbar({
           container: toolbarHost,
           bottomOffset: number(map.toolbarBottomOffset, 58),
           baseMapNames,
+          basemapContent: baseMapControls.element,
         });
         this.enhanceMobileToolbar(container);
         this.installViewportListeners(container);
         this.startCameraFeedback(container);
+        this.resetGlobalView(container, false);
         const canvasReady = Boolean(container.querySelector?.('canvas'));
         const toolbarReady = Boolean(toolbarHost.querySelector?.('.sag-tools'));
         this.reportStatus(
@@ -485,12 +629,15 @@ export default {
           `基础球体${canvasReady ? '已创建' : '未检测到 Canvas'}，工具栏${toolbarReady ? '已创建' : '未创建'}`,
           canvasReady && toolbarReady ? 'success' : 'error',
         );
-        if (this.lastPayload) this.restoreEntitySafely(container, '当前位置', () => this.applyLocation(this.lastPayload, true));
+        // Restore the marker without taking over the global startup view.
+        // The dedicated "定位" control remains the explicit way to fly near.
+        if (this.lastPayload) this.restoreEntitySafely(container, '当前位置', () => this.applyLocation(this.lastPayload, false));
         if (this.lastTrackPayload) this.restoreEntitySafely(container, '轨迹线', () => this.applyTrack(this.lastTrackPayload));
         if (this.lastPlaybackPayload) this.restoreEntitySafely(container, '回放位置', () => this.applyPlayback(this.lastPlaybackPayload));
         if (baseMap) {
           this.reportStatus(container, `地球与工具栏已就绪，正在加载底图 ${baseMap}`);
           viewerInstance.setBaseMap(baseMap).then(() => {
+            baseMapControls.sync(baseMap);
             this.reportStatus(container, `地球、工具栏和底图 ${baseMap} 已就绪`, 'success');
           }).catch((baseMapError) => {
             const reason = baseMapError instanceof Error ? baseMapError.message : String(baseMapError);
@@ -524,6 +671,18 @@ export default {
         return;
       }
       if (!viewerInstance) return;
+      if (command.action === 'clear-playback') {
+        // Explicit lifecycle end: stopping playback only resets time, whereas
+        // recycling must destroy both map entities, including the icon texture
+        // user can still see after the playback drawer is closed/minimised.
+        viewerInstance.selectEntity(null);
+        if (viewerInstance.entities.has(PLAYBACK_ENTITY_ID)) viewerInstance.entities.remove(PLAYBACK_ENTITY_ID);
+        if (viewerInstance.entities.has(TRACK_ENTITY_ID)) viewerInstance.entities.remove(TRACK_ENTITY_ID);
+        this.lastPlaybackPayload = '';
+        this.lastTrackPayload = '[]';
+        this.reportStatus(this.resolveContainer(), '轨迹线与回放图标已回收', 'success');
+        return;
+      }
       if (command.action === 'locate') {
         let point;
         try { point = JSON.parse(this.lastPayload); } catch { point = null; }

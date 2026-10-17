@@ -59,6 +59,7 @@
     <template v-else>
       <view class="map-home">
         <SpringGisMap
+          ref="mapRef"
           immersive
           :point="locationState.lastPoint"
           :track-points="playbackTrackPoints"
@@ -131,6 +132,7 @@
                 <view class="playback-select">速度 {{ playbackSpeedLabels[playbackSpeedIndex] }}</view>
               </picker>
             </view>
+            <view class="playback-recycle" @click="recyclePlayback">回收轨迹线与回放图标</view>
           </template>
           <text v-else class="playback-summary">支持读取并动画回放本人最近三天内的历史轨迹。</text>
           <text v-if="historyError" class="error">{{ historyError }}</text>
@@ -146,6 +148,11 @@
         <text class="section-title">认证终端</text>
         <text class="description">私钥由 Android Keystore 生成并保存在本机。初次绑定或迁移时，还必须输入 PC 账户管理页下发的 8-12 位授权码。</text>
         <template v-if="!terminalBound">
+          <view class="binding-website-help">
+            <text>当前设备尚未绑定。请先在电脑浏览器进入“春秋GIS”，登录同一账户并在账户管理中生成绑定授权码。</text>
+            <text class="binding-website-url">{{ officialWebsiteUrl }}</text>
+            <button class="binding-website-button" @click="openOfficialWebsite">打开春秋GIS官网</button>
+          </view>
           <input v-model="bindingCode" class="authorization-input" maxlength="12" placeholder="8-12 位绑定 / 迁移授权码" />
           <button class="secondary" :disabled="busy || bindingCode.length < 8" @click="bindTerminal">绑定 / 迁移到当前设备</button>
         </template>
@@ -243,6 +250,8 @@ const session = ref<AuthSession | null>(null);
 const restoringSession = ref(true);
 const hasSavedSession = ref(Boolean(loadRefreshToken()));
 const terminalBound = ref(false);
+const officialWebsiteUrl = 'http://8.137.36.114:8000/';
+const bindingReminderShown = ref(false);
 const activeModule = ref<'track' | 'map' | 'permission' | null>(null);
 const locationIntervals = [...LOCATION_INTERVALS];
 const locationInterval = ref<LocationInterval>(2);
@@ -267,6 +276,7 @@ const playbackTrackPoints = computed(() => {
 const playbackProgress = computed(() => historyTrackPoints.value.length <= 1
   ? 0
   : Math.round(playbackIndex.value / (historyTrackPoints.value.length - 1) * 1000));
+const mapRef = ref<{ recyclePlaybackEntities: () => void } | null>(null);
 let playbackTimer: ReturnType<typeof setInterval> | null = null;
 let locationTracker: LocationTracker | null = null;
 const bindingLogs = ref<string[]>([]);
@@ -295,6 +305,37 @@ function toggleModule(module: 'track' | 'map' | 'permission') {
   activeModule.value = activeModule.value === module ? null : module;
 }
 
+function openOfficialWebsite() {
+  // #ifdef APP-PLUS
+  plus.runtime.openURL(officialWebsiteUrl, () => {
+    uni.setClipboardData({
+      data: officialWebsiteUrl,
+      success: () => uni.showModal({
+        title: '无法直接打开浏览器',
+        content: '官网地址已复制，请在浏览器中粘贴打开。',
+        showCancel: false,
+      }),
+    });
+  });
+  // #endif
+  // #ifdef H5
+  window.open(officialWebsiteUrl, '_blank', 'noopener,noreferrer');
+  // #endif
+}
+
+function showBindingWebsiteReminder(force = false) {
+  if (!session.value || terminalBound.value || (!force && bindingReminderShown.value)) return;
+  bindingReminderShown.value = true;
+  activeModule.value = 'permission';
+  uni.showModal({
+    title: '设备尚未绑定',
+    content: `请在电脑浏览器进入“春秋GIS”，登录同一账户并生成绑定授权码。\n\n${officialWebsiteUrl}`,
+    confirmText: '前往官网',
+    cancelText: '稍后绑定',
+    success: (result) => { if (result.confirm) openOfficialWebsite(); },
+  });
+}
+
 function clearSessionRefreshTimer() {
   if (sessionRefreshTimer !== null) clearTimeout(sessionRefreshTimer);
   sessionRefreshTimer = null;
@@ -305,6 +346,7 @@ function resetLocalSession(removeStoredSession = true) {
   locationTracker?.stop(); locationTracker = null;
   clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer();
   session.value = null; accessExpiresAt = 0; terminalBound.value = false;
+  bindingReminderShown.value = false;
   quickCode.value = ''; bindingCode.value = ''; migrationCode.value = '';
   migrationPassword.value = ''; migrationAnswers.value = ['', '']; securityQuestions.value = [];
   revokeAuthorizationCode.value = ''; revokeVerificationCode.value = '';
@@ -329,7 +371,8 @@ function applySession(authenticated: AuthSession) {
 }
 
 async function initializeAuthenticatedSession(authenticated: AuthSession) {
-  await attachExistingTerminal(authenticated);
+  const bindingState = await attachExistingTerminal(authenticated);
+  if (bindingState === false) showBindingWebsiteReminder();
   await refreshSecurityQuestions(authenticated);
   await restoreLocationTracking(authenticated);
 }
@@ -551,6 +594,14 @@ function stopPlayback() {
   playbackIndex.value = 0;
 }
 
+function recyclePlayback() {
+  clearPlaybackTimer();
+  playbackIndex.value = 0;
+  historyTrackPoints.value = [];
+  historyError.value = '';
+  mapRef.value?.recyclePlaybackEntities();
+}
+
 function seekPlayback(event: { detail: { value: number } }) {
   clearPlaybackTimer();
   const maximum = Math.max(0, historyTrackPoints.value.length - 1);
@@ -564,7 +615,7 @@ async function refreshSecurityQuestions(authenticated = session.value) {
 }
 
 async function attachExistingTerminal(authenticated: AuthSession) {
-  if (!isNativeKeyAvailable()) return;
+  if (!isNativeKeyAvailable()) return null;
   try {
     const alias = `springgis_${authenticated.user.user_uuid}`;
     const publicKey = await ensureTerminalKey(alias);
@@ -572,10 +623,15 @@ async function attachExistingTerminal(authenticated: AuthSession) {
     const signature = signTerminalPayload(alias, challenge.nonce);
     const terminal = await confirmTerminalSession(authenticated.access_token, challenge.challenge_id, challenge.nonce, signature);
     terminalBound.value = terminal.status === 1;
-    if (terminalBound.value) await generateQuickCode();
+    if (terminalBound.value) {
+      bindingReminderShown.value = false;
+      await generateQuickCode();
+    }
+    return terminalBound.value;
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : String(reason);
     if (!message.includes('尚未绑定')) console.info('[terminal-session]', message);
+    return message.includes('尚未绑定') || message.includes('未绑定') ? false : null;
   }
 }
 
@@ -618,6 +674,7 @@ async function bindTerminal() {
       signature,
     );
     terminalBound.value = terminal.status === 1;
+    bindingReminderShown.value = false;
     bindingCode.value = '';
     appendBindingLog(`终端绑定成功：${terminal.system_name}`);
     await generateQuickCode();
@@ -705,7 +762,8 @@ async function syncRemoteState() {
   if (!session.value) return;
   await refreshSecurityQuestions();
   if (!terminalBound.value) {
-    await attachExistingTerminal(session.value);
+    const bindingState = await attachExistingTerminal(session.value);
+    if (bindingState === false) showBindingWebsiteReminder();
     return;
   }
   try {
@@ -716,6 +774,7 @@ async function syncRemoteState() {
     if (message.includes('失效') || message.includes('未绑定') || message.includes('登录')) {
       terminalBound.value = false; clearQuickTimer(); clearRevokeVerificationTimer();
       quickCode.value = ''; revokeAuthorizationCode.value = ''; revokeVerificationCode.value = '';
+      if (message.includes('未绑定') || message.includes('失效')) showBindingWebsiteReminder();
     }
   }
 }
@@ -807,6 +866,10 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
 .privacy,.muted { margin-top: 20rpx; color: #7a949d; font-size: 23rpx; line-height: 1.6; }.error { margin-top: 18rpx; color: #b52c2c; font-size: 25rpx; }
 .account-card { display: flex; align-items: center; justify-content: space-between; }.label { color: #7a949d; font-size: 23rpx; }.account-name { margin-top: 6rpx; font-size: 35rpx; font-weight: 700; }.status-pill { padding: 10rpx 18rpx; border-radius: 999rpx; background: #d7f0f5; color: #0e7c93; font-size: 23rpx; }
 .section-title { margin-bottom: 12rpx; font-size: 32rpx; font-weight: 700; }.authorization-input { width: 100%; margin-top: 24rpx; text-align: center; font-family: monospace; letter-spacing: 5rpx; }.quick-code-display { margin-top: 24rpx; padding: 24rpx; border-radius: 20rpx; background: #10272d; color: white; text-align: center; font-family: monospace; font-size: 54rpx; font-weight: 700; letter-spacing: 18rpx; }.quick-countdown { display: block; margin-top: 12rpx; color: #0e7c93; text-align: center; font-size: 24rpx; }.authorization-result { margin-top: 20rpx; padding: 20rpx; border-radius: 18rpx; background: #10272d; color: white; text-align: center; }.authorization-result text { display: block; }.authorization-result text:first-child { font-family: monospace; font-size: 40rpx; font-weight: 700; letter-spacing: 6rpx; }.authorization-result text:last-child { margin-top: 8rpx; color: #b9dce1; font-size: 22rpx; }
+.binding-website-help { margin-top: 22rpx; padding: 22rpx; border: 1rpx solid rgba(14,124,147,.22); border-radius: 20rpx; background: linear-gradient(145deg,#eefcff,#fff8ed); }
+.binding-website-help > text { display: block; color: #31515b; font-size: 23rpx; line-height: 1.65; }
+.binding-website-url { margin-top: 12rpx; color: #0e7c93 !important; font-family: monospace; word-break: break-all; }
+.binding-website-button { margin-top: 18rpx; border: 0; border-radius: 999rpx; background: #0e7c93; color: #fff; font-size: 25rpx; }
 .diagnostic-panel { background: #10272d; color: #d7f0f5; }
 .diagnostic-title-row { display: flex; align-items: center; justify-content: space-between; }
 .diagnostic-title-row .section-title { color: #fff; }
@@ -832,6 +895,7 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
 .playback-select,.playback-action { padding: 14rpx 18rpx; border: 1rpx solid rgba(14,124,147,.25); border-radius: 14rpx; background: white; color: #0e7c93; font-size: 22rpx; font-weight: 700; }
 .playback-action { background: #0e7c93; color: white; }
 .playback-action--muted { background: white; color: #6a7d82; }
+.playback-recycle { margin-top: 14rpx; padding: 15rpx 18rpx; border: 1rpx solid rgba(181,44,44,.3); border-radius: 14rpx; background: rgba(181,44,44,.08); color: #a12d2d; text-align: center; font-size: 22rpx; font-weight: 700; }
 .playback-summary { display: block; margin: 16rpx 0 8rpx; color: #6a5a4e; font-size: 22rpx; line-height: 1.5; }
 
 @media screen and (orientation: landscape) {
@@ -862,10 +926,14 @@ onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTim
   .playback-card { margin-bottom: 8px; padding: 10px; border-radius: 10px; }
   .playback-row { gap: 6px; }
   .playback-select,.playback-action { padding: 7px 9px; border-radius: 8px; font-size: 11px; }
+  .playback-recycle { margin-top: 7px; padding: 7px 9px; border-radius: 8px; font-size: 11px; }
   .playback-summary { margin: 7px 0 3px; font-size: 11px; }
   .module-drawer .field { margin-top: 10px; }
   .module-drawer .field text { margin-bottom: 5px; font-size: 12px; }
   .module-drawer .field input,.module-drawer .authorization-input,.module-drawer .migration-verification > input { height: 38px; padding: 0 10px; border-radius: 9px; font-size: 13px; }
+  .binding-website-help { margin-top: 9px; padding: 10px; border-radius: 10px; }
+  .binding-website-help > text { font-size: 11px; }
+  .binding-website-button { min-height: 34px; margin-top: 8px; font-size: 12px; }
   .quick-code-display { margin-top: 10px; padding: 10px; border-radius: 10px; font-size: 25px; letter-spacing: 9px; }
   .quick-countdown { margin-top: 5px; font-size: 11px; }
 }

@@ -120,7 +120,11 @@ function syncPitchFromEngine(value: unknown) {
   pitchValue.value = Math.round(Math.max(0, Math.min(90, parsed)));
 }
 
-defineExpose({ syncPitchFromEngine });
+function recyclePlaybackEntities() {
+  sendControl('clear-playback');
+}
+
+defineExpose({ syncPitchFromEngine, recyclePlaybackEntities });
 
 onMounted(() => void nextTick(() => measurePitchTrack()));
 </script>
@@ -171,7 +175,6 @@ onMounted(() => void nextTick(() => measurePitchTrack()));
 .pitch-caption { position: absolute; z-index: 2; bottom: 8rpx; left: 0; right: 0; color: #9bcbd4; text-align: center; font-size: 17rpx; }
 .engine-shell--fullscreen .map-controls { top: calc(env(safe-area-inset-top) + 20rpx); }
 .engine-shell--fullscreen .engine-status { top: calc(env(safe-area-inset-top) + 24rpx); }
-:deep(.engine-canvas canvas) { position: absolute; inset: 0; display: block; width: 100% !important; height: 100% !important; }
 :deep(.sag-tools) { z-index: 170 !important; left: 10px !important; max-height: calc(100% - 150px) !important; scrollbar-width: none; }
 :deep(.sag-tools::-webkit-scrollbar) { display: none; }
 :deep(.sag-tool-panel) { z-index: 260 !important; width: auto !important; max-height: min(72%, calc(100% - 40px)) !important; overscroll-behavior: contain; }

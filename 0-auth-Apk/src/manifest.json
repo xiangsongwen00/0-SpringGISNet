@@ -2,8 +2,8 @@
     "name" : "春秋GIS 人生轨迹",
     "appid" : "__UNI__11F019F",
     "description" : "春秋GIS位置轨迹与独立授权终端",
-    "versionName" : "1.2.10",
-    "versionCode" : "130",
+    "versionName" : "1.2.15",
+    "versionCode" : "135",
     "transformPx" : false,
     /* 5+App特有相关 */
     "app-plus" : {

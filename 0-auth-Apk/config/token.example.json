@@ -1,6 +1,12 @@
 {
   "tianditu": {
-    "token": "YOUR_PUBLIC_TIANDITU_KEY"
+    "token": "YOUR_PUBLIC_TIANDITU_KEY",
+    "annotationEnabledByDefault": false
+  },
+  "google": {
+    "urlTemplate": "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+    "subdomains": ["0", "1", "2", "3"],
+    "attribution": "Google Maps"
   },
   "maptiler": {
     "key": "YOUR_PUBLIC_MAPTILER_KEY"
@@ -14,7 +20,7 @@
     "attribution": "© OpenStreetMap contributors"
   },
   "demo": {
-    "defaultBaseMap": "",
+    "defaultBaseMap": "tianditu-imagery",
     "basemaps": [],
     "terrain": {
       "tileJsonUrl": "",
