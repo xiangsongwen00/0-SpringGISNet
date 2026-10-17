@@ -16,3 +16,4 @@ htmlcov/
 token.json
 dist-js/
 0-testpy/
+*.zip
