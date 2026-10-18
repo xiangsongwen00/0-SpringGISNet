@@ -294,6 +294,7 @@ const historyError = ref('');
 const playbackIndex = ref(0);
 const playbackPlaying = ref(false);
 const playbackFollowEnabled = ref(false);
+const activeFollowMode = ref<'none' | 'live' | 'playback'>('none');
 const playbackSpeedOptions = [1, 2, 5, 10];
 const playbackSpeedLabels = playbackSpeedOptions.map((speed) => `${speed}×`);
 const playbackSpeedIndex = ref(1);
@@ -329,8 +330,22 @@ let accessExpiresAt = 0;
 let sessionRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let sessionRefreshPromise: Promise<boolean> | null = null;
 let authGeneration = 0;
+let wakeLockHeld = false;
 
 watch(bindingCode, (value) => { const normalized = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12); if (normalized !== value) bindingCode.value = normalized; });
+
+function setTrackingWakeLock(enabled: boolean) {
+  if (wakeLockHeld === enabled) return;
+  // #ifdef APP-PLUS
+  try {
+    plus.device.setWakelock(enabled);
+  } catch (reason) {
+    console.info('[tracking-wakelock]', reason instanceof Error ? reason.message : String(reason));
+    return;
+  }
+  // #endif
+  wakeLockHeld = enabled;
+}
 
 function toggleModule(module: 'track' | 'map' | 'permission') {
   const opening = activeModule.value !== module;
@@ -378,6 +393,8 @@ function clearSessionRefreshTimer() {
 
 function resetLocalSession(removeStoredSession = true) {
   authGeneration += 1;
+  activeFollowMode.value = 'none';
+  setTrackingWakeLock(false);
   locationTracker?.stop(); locationTracker = null;
   clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer();
   session.value = null; accessExpiresAt = 0; terminalBound.value = false;
@@ -676,6 +693,8 @@ function stopPlayback() {
 }
 
 function handleFollowModeChange(mode: 'none' | 'live' | 'playback') {
+  activeFollowMode.value = mode;
+  setTrackingWakeLock(mode !== 'none' && appIsVisible);
   playbackFollowEnabled.value = mode === 'playback';
 }
 
@@ -954,6 +973,7 @@ async function resumeSession() {
 void restorePersistedSession();
 onShow(() => {
   appIsVisible = true;
+  setTrackingWakeLock(activeFollowMode.value !== 'none');
   void (async () => {
     await resumeSession();
     if (trackingPausedForBackground && session.value && terminalBound.value) {
@@ -964,13 +984,14 @@ onShow(() => {
 });
 onHide(() => {
   appIsVisible = false;
+  setTrackingWakeLock(false);
   if (!backgroundTrackingEnabled.value && locationTracker && locationState.value.running) {
     trackingPausedForBackground = true;
     locationTracker.stop();
   }
 });
 statusTimer = setInterval(() => void syncRemoteState(), 30000);
-onUnmounted(() => { locationTracker?.stop(); clearPlaybackTimer(); clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
+onUnmounted(() => { setTrackingWakeLock(false); locationTracker?.stop(); clearPlaybackTimer(); clearQuickTimer(); clearRevokeVerificationTimer(); clearSessionRefreshTimer(); if (statusTimer !== null) clearInterval(statusTimer); });
 </script>
 
 <style scoped>

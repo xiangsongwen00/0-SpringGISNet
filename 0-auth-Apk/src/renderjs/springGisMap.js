@@ -23,27 +23,85 @@ let lastFeedbackPitch = null;
 let followMode = 'none';
 const FOLLOW_CLEARANCE_METERS = 200;
 const FOLLOW_CAMERA_INTERVAL_MS = 360;
-let followHeadingSamples = [];
+const FOLLOW_HEADING_UPDATE_MS = 4000;
+let followMotionSamples = [];
 let followStableHeading = 0;
+let lastFollowHeadingAt = 0;
 let followCameraTimer = null;
 let followCameraPoint = null;
 let lastFollowCameraAt = 0;
 let cachedTrackPayload = '';
 let cachedTrackPositions = [];
 
-function stableFollowHeading() {
-  if (followHeadingSamples.length < 30) return null;
-  let sine = 0;
-  let cosine = 0;
-  for (const heading of followHeadingSamples) {
-    const radians = heading * Math.PI / 180;
-    sine += Math.sin(radians);
-    cosine += Math.cos(radians);
+function normalizeHeading(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function headingDelta(from, to) {
+  return ((normalizeHeading(to) - normalizeHeading(from) + 540) % 360) - 180;
+}
+
+function blendHeading(from, to, ratio) {
+  return normalizeHeading(from + headingDelta(from, to) * ratio);
+}
+
+function pointDistance(left, right) {
+  const radians = (value) => value * Math.PI / 180;
+  const latitudeDelta = radians(right.latitude - left.latitude);
+  const longitudeDelta = radians(right.longitude - left.longitude);
+  const a = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(left.latitude)) * Math.cos(radians(right.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371008.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+}
+
+function pointBearing(left, right) {
+  const radians = (value) => value * Math.PI / 180;
+  const leftLatitude = radians(left.latitude);
+  const rightLatitude = radians(right.latitude);
+  const longitudeDelta = radians(right.longitude - left.longitude);
+  const y = Math.sin(longitudeDelta) * Math.cos(rightLatitude);
+  const x = Math.cos(leftLatitude) * Math.sin(rightLatitude)
+    - Math.sin(leftLatitude) * Math.cos(rightLatitude) * Math.cos(longitudeDelta);
+  return normalizeHeading(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+function deriveRouteHeading() {
+  const count = followMotionSamples.length;
+  if (count < 2) return null;
+  const latest = followMotionSamples[count - 1];
+  const recent = followMotionSamples.slice(-3);
+  const window = followMotionSamples.slice(-5);
+  const reportedSpeed = Number.isFinite(latest.speed) ? Math.max(0, latest.speed) : 0;
+  const reportedAccuracy = Number.isFinite(latest.accuracy) ? Math.max(0, latest.accuracy) : 20;
+  // Walking needs roughly 3-5 metres of displacement; a vehicle can establish
+  // direction from two fixes. Accuracy only raises the threshold moderately so
+  // a ±30m phone fix does not force the user to wait for dozens of points.
+  const movementThreshold = reportedSpeed >= 3
+    ? 3
+    : Math.max(3.5, Math.min(8, reportedAccuracy * 0.15));
+  const recentDistance = pointDistance(recent[0], latest);
+  const windowDistance = pointDistance(window[0], latest);
+  const recentHeading = recent.length >= 3 && recentDistance >= movementThreshold
+    ? pointBearing(recent[0], latest)
+    : null;
+  const windowHeading = window.length >= 4 && windowDistance >= movementThreshold
+    ? pointBearing(window[0], latest)
+    : null;
+
+  const latestLegDistance = count >= 2 ? pointDistance(followMotionSamples[count - 2], latest) : 0;
+  if (count >= 2 && (
+    (reportedSpeed >= 3 && latestLegDistance >= 3)
+    || latestLegDistance >= movementThreshold * 2
+  )) {
+    return pointBearing(followMotionSamples[count - 2], latest);
   }
-  const count = followHeadingSamples.length;
-  const concentration = Math.sqrt(sine * sine + cosine * cosine) / count;
-  if (concentration < 0.92) return null;
-  return (Math.atan2(sine, cosine) * 180 / Math.PI + 360) % 360;
+  if (recentHeading === null) return windowHeading;
+  if (windowHeading === null) return recentHeading;
+  const disagreement = Math.abs(headingDelta(windowHeading, recentHeading));
+  if (disagreement <= 35) return blendHeading(windowHeading, recentHeading, 0.68);
+  // A clear recent displacement is treated as a real turn; otherwise retain
+  // the longer-window direction rather than rotating on GPS jitter.
+  return recentDistance >= movementThreshold * 1.35 ? recentHeading : windowHeading;
 }
 
 function text(value) {
@@ -712,8 +770,9 @@ export default {
         followCameraTimer = null;
         followCameraPoint = null;
         lastFollowCameraAt = 0;
-        followHeadingSamples = [];
+        followMotionSamples = [];
         followStableHeading = 0;
+        lastFollowHeadingAt = 0;
         const followPayload = followMode === 'live' ? this.lastPayload : followMode === 'playback' ? this.lastPlaybackPayload : '';
         if (followPayload) {
           try { this.followPoint(JSON.parse(followPayload), true); } catch { /* Wait for the next valid point. */ }
@@ -739,8 +798,9 @@ export default {
           followCameraTimer = null;
           followCameraPoint = null;
           lastFollowCameraAt = 0;
-          followHeadingSamples = [];
+          followMotionSamples = [];
           followStableHeading = 0;
+          lastFollowHeadingAt = 0;
         }
         this.reportStatus(this.resolveContainer(), '轨迹线与回放图标已回收', 'success');
         return;
@@ -836,12 +896,34 @@ export default {
     },
     applyFollowCamera(point) {
       if (!viewerInstance || !point || !Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) return;
-      if (Number.isFinite(point.heading)) {
-        followHeadingSamples.push(((point.heading % 360) + 360) % 360);
-        followHeadingSamples = followHeadingSamples.slice(-30);
+      const previous = followMotionSamples[followMotionSamples.length - 1];
+      const duplicate = previous
+        && previous.longitude === point.longitude
+        && previous.latitude === point.latitude
+        && previous.recordedAt === point.recordedAt;
+      if (!duplicate) {
+        followMotionSamples.push({
+          longitude: point.longitude,
+          latitude: point.latitude,
+          accuracy: point.accuracy,
+          speed: point.speed,
+          recordedAt: point.recordedAt,
+        });
+        followMotionSamples = followMotionSamples.slice(-5);
       }
-      const routeHeading = stableFollowHeading();
-      if (routeHeading !== null) followStableHeading = routeHeading;
+      const routeHeading = deriveRouteHeading();
+      const now = performance.now();
+      if (routeHeading !== null) {
+        const turn = Math.abs(headingDelta(followStableHeading, routeHeading));
+        const firstDirection = lastFollowHeadingAt === 0;
+        const sharpTurn = turn >= 45;
+        if (firstDirection || (turn >= 8 && (sharpTurn || now - lastFollowHeadingAt >= FOLLOW_HEADING_UPDATE_MS))) {
+          followStableHeading = firstDirection
+            ? routeHeading
+            : blendHeading(followStableHeading, routeHeading, sharpTurn ? 0.68 : 0.45);
+          lastFollowHeadingAt = now;
+        }
+      }
       viewerInstance.flyTo({
         longitude: point.longitude,
         latitude: point.latitude,
@@ -859,7 +941,10 @@ export default {
         longitude: point.longitude,
         latitude: point.latitude,
         altitude: point.altitude,
+        accuracy: point.accuracy,
+        speed: point.speed,
         heading: point.heading,
+        recordedAt: point.recordedAt,
       };
       const now = performance.now();
       const elapsed = now - lastFollowCameraAt;
@@ -948,8 +1033,9 @@ export default {
       cachedTrackPayload = '';
       cachedTrackPositions = [];
       followMode = 'none';
-      followHeadingSamples = [];
+      followMotionSamples = [];
       followStableHeading = 0;
+      lastFollowHeadingAt = 0;
       if (!viewerInstance) return;
       viewerInstance.destroy();
       viewerInstance = null;

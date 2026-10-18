@@ -67,6 +67,7 @@ const locationPayload = computed(() => props.point ? JSON.stringify({
   latitude: props.point.latitude,
   altitude: props.point.altitude,
   accuracy: props.point.accuracy,
+  speed: props.point.speed,
   heading: props.point.heading,
   recordedAt: props.point.recorded_at,
 }) : '');
