@@ -327,3 +327,79 @@ export function getSharedCurrentLocations(): Promise<SharedCurrentLocation[]> {
   return authorizedRequest('/locations/shared/current', { method: 'GET' });
 }
 
+export interface HistoryArticleSummary {
+  article_id: string;
+  path: string;
+  title: string;
+  case_id: string | null;
+  category_path: string[];
+  sort_order: number;
+  updated_at: string;
+}
+
+export interface HistoryCatalogResponse {
+  catalog: { cases?: Array<Record<string, unknown>>; [key: string]: unknown };
+  articles: HistoryArticleSummary[];
+}
+
+export interface HistoryArticle extends HistoryArticleSummary {
+  content: string;
+  sha256: string;
+  byte_size: number;
+}
+
+export interface HistorySearchItem {
+  book_id: string;
+  book_title: string;
+  chapter_id: string;
+  chapter_title: string;
+  ordinal: number;
+  original_text: string;
+  normalized_text: string;
+  verification_status: string;
+}
+
+export interface HistorySearchResponse {
+  query: string;
+  normalized: boolean;
+  items: HistorySearchItem[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export function getHistoryCatalog(): Promise<HistoryCatalogResponse> {
+  return jsonRequest('/history/catalog', { method: 'GET' });
+}
+
+export function getHistoryArticle(articleId: string): Promise<HistoryArticle> {
+  return jsonRequest(`/history/articles/${encodeURIComponent(articleId)}`, { method: 'GET' });
+}
+
+export function searchHistoryText(query: string, normalized = false): Promise<HistorySearchResponse> {
+  const params = new URLSearchParams({ q: query, normalized: String(normalized) });
+  return jsonRequest(`/history/text/search?${params}`, { method: 'GET' });
+}
+
+export function upsertHistoryArticle(payload: {
+  path: string;
+  title: string;
+  content: string;
+  case_id: string | null;
+  category_path: string[];
+  published: boolean;
+  sort_order: number;
+}): Promise<HistoryArticleSummary> {
+  return authorizedRequest('/history/admin/articles', {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateHistoryCatalog(payload: Record<string, unknown>): Promise<{ message: string; case_count: number }> {
+  return authorizedRequest('/history/admin/catalog', {
+    method: 'PUT',
+    body: JSON.stringify({ payload })
+  });
+}
+

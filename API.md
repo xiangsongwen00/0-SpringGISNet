@@ -573,8 +573,33 @@ const meResponse = await fetch('/api/v1/users/me', {
 部署新版本后执行：
 
 ```powershell
-python 0-testpy/apply_migration.py
+cd 0-pythonServer
+python index.py --migrate
 ```
 
 对应迁移为 `006_location_tracking.sql`。
+
+## 17. 史地预览室 API
+
+整理稿阅读、目录读取和古籍原文检索均为公开接口，不要求注册或登录；内容写入仍使用现有 Bearer 登录会话，且服务端只接受配置项 `[history] editors` 中的用户名（当前为 `springgis`、`凡语春秋`）。这项权限不修改 `users` 表，也不赋予终端、轨迹或其他管理权限。
+
+### 公开读取
+
+- `GET /api/v1/history/catalog`：返回 `cases.json` 目录以及已发布文章清单。
+- `GET /api/v1/history/articles/{article_id}`：返回经过 SHA256 完整性核验的 UTF-8 Markdown。
+- `GET /api/v1/history/text/books`：分页读取原文书目。
+- `GET /api/v1/history/text/books/{book_id}/chapters`：分页读取章节。
+- `GET /api/v1/history/text/chapters/{chapter_id}/paragraphs`：分页读取段落。
+- `GET /api/v1/history/text/search?q=长安&normalized=false`：字面短语检索；`q` 为 2-80 字，单页最多 50 条，服务端查询超时为 8 秒。
+
+公开接口只暴露文献内容及来源标识，不返回用户资料。原文库只读，API 没有原文删除、任意 SQL 或本机文件读取接口。
+
+### 内容维护
+
+- `PUT /api/v1/history/admin/articles`：新增或更新一篇 `.md`；路径必须在 `docs/` 下，单文件默认上限 2 MiB。
+- `PUT /api/v1/history/admin/catalog`：更新目录对象，必须包含 `cases` 数组。
+
+服务端使用临时文件加原子替换写入 Markdown，并记录维护账户、路径、摘要和结果审计。生产环境应将 `0-pythonServer/history_content` 挂载到持久化磁盘，避免容器重建丢失在线更新。
+
+对应结构迁移为 `007_history_library.sql`。大体量原文数据不由 `index.py --migrate` 导入，使用根目录 [0-historyMigration/README.md](0-historyMigration/README.md) 的一次性迁移服务。
 

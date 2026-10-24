@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import unicodedata
 from configparser import ConfigParser
 from functools import lru_cache
 from pathlib import Path
@@ -37,6 +38,9 @@ class Settings(BaseModel):
     log_max_bytes: int = 10 * 1024 * 1024
     log_backup_count: int = 5
     slow_request_ms: int = 1000
+    history_content_dir: str = "history_content"
+    history_editor_usernames: tuple[str, ...] = ("springgis", "凡语春秋")
+    history_max_upload_bytes: int = 2 * 1024 * 1024
 
 
 def _read_ini() -> ConfigParser:
@@ -138,6 +142,10 @@ def get_settings() -> Settings:
             fallback="",
         ),
     )
+    history_editors = os.getenv(
+        "SPRINGGIS_HISTORY_EDITORS",
+        ini.get("history", "editors", fallback="springgis,凡语春秋"),
+    )
     return Settings(
         environment=os.getenv(
             "SPRINGGIS_ENVIRONMENT",
@@ -210,6 +218,18 @@ def get_settings() -> Settings:
         slow_request_ms=int(os.getenv(
             "SPRINGGIS_SLOW_REQUEST_MS",
             ini.get("logging", "slow_request_ms", fallback="1000"),
+        )),
+        history_content_dir=str(_resolve_from_base(os.getenv(
+            "SPRINGGIS_HISTORY_CONTENT_DIR",
+            ini.get("history", "content_dir", fallback="history_content"),
+        ))),
+        history_editor_usernames=tuple(
+            unicodedata.normalize("NFKC", item.strip()).casefold()
+            for item in history_editors.split(",") if item.strip()
+        ),
+        history_max_upload_bytes=int(os.getenv(
+            "SPRINGGIS_HISTORY_MAX_UPLOAD_BYTES",
+            ini.get("history", "max_upload_bytes", fallback=str(2 * 1024 * 1024)),
         )),
     )
 

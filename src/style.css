@@ -94,8 +94,9 @@ button, input, textarea, select { font: inherit; }
   color: var(--muted);
   font-size: 0.96rem;
 }
-.nav a { position: relative; }
-.nav a::after {
+.nav a, .nav-history { position: relative; }
+.nav-history { border: 0; background: transparent; color: inherit; padding: 0; font: inherit; cursor: pointer; white-space: nowrap; }
+.nav a::after, .nav-history::after {
   content: '';
   position: absolute;
   left: 0;
@@ -105,7 +106,7 @@ button, input, textarea, select { font: inherit; }
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   transition: width 0.25s ease;
 }
-.nav a:hover::after { width: 100%; }
+.nav a:hover::after, .nav-history:hover::after { width: 100%; }
 
 .nav-actions {
   display: flex;

@@ -315,3 +315,41 @@ class AuditLog(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
 
+
+class HistoryArticle(Base):
+    __tablename__ = "history_articles"
+    __table_args__ = (
+        Index("idx_history_articles_published_sort", "published", "sort_order"),
+        Index("idx_history_articles_case", "case_id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    article_uuid: Mapped[str] = mapped_column(Uuid(as_uuid=False), unique=True, nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    case_id: Mapped[str | None] = mapped_column(String(128))
+    category_path: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
+class HistoryCatalog(Base):
+    __tablename__ = "history_catalogs"
+
+    catalog_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+

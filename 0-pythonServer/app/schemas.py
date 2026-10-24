@@ -360,4 +360,38 @@ class ApproximateLocationResponse(BaseModel):
     label: str | None = None
 
 
+class HistoryArticleSummary(BaseModel):
+    article_id: str
+    path: str
+    title: str
+    case_id: str | None = None
+    category_path: list[str] = Field(default_factory=list)
+    sort_order: int = 0
+    updated_at: datetime
+
+
+class HistoryArticleResponse(HistoryArticleSummary):
+    content: str
+    sha256: str
+    byte_size: int
+
+
+class HistoryArticleUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=4, max_length=1024)
+    title: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1)
+    case_id: str | None = Field(default=None, max_length=128)
+    category_path: list[str] = Field(default_factory=list, max_length=16)
+    published: bool = True
+    sort_order: int = Field(default=0, ge=-100000, le=100000)
+
+
+class HistoryCatalogUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    payload: dict[str, object]
+
+
 

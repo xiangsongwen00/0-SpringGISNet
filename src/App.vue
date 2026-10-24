@@ -1,5 +1,6 @@
 <template>
-  <div class="site-shell" :data-device="deviceType">
+  <HistoryPreviewRoom v-if="historyOpen" :user="user" @close="historyOpen = false" />
+  <div v-else class="site-shell" :data-device="deviceType">
     <header class="topbar">
       <div class="brand-wrap">
         <div class="brand-mark">春</div>
@@ -9,6 +10,7 @@
         </div>
       </div>
       <nav class="nav" aria-label="主导航">
+        <button class="nav-history" type="button" @click="historyOpen = true">史地预览室</button>
         <a v-if="config.page.showAbout" href="#about">关于</a>
         <a v-if="config.page.showEngineDemo" href="#engine">引擎</a>
         <a v-if="config.page.showArticles" href="#articles">文章</a>
@@ -200,6 +202,7 @@ import { onMounted, ref } from 'vue';
 import AuthDialog from './components/AuthDialog.vue';
 import AccountDialog from './components/AccountDialog.vue';
 import GlobeDemo from './components/GlobeDemo.vue';
+import HistoryPreviewRoom from './components/HistoryPreviewRoom.vue';
 import { useAuth } from './composables/useAuth';
 import { useDeviceType } from './composables/useDeviceType';
 import siteConfig from './config/site.config.json';
@@ -211,6 +214,7 @@ const quickAuthPreview = import.meta.env.DEV && new URLSearchParams(window.locat
 const authOpen = ref(quickAuthPreview);
 const authInitialMode = ref<'login' | 'quick'>(quickAuthPreview ? 'quick' : 'login');
 const accountOpen = ref(false);
+const historyOpen = ref(false);
 const { deviceType } = useDeviceType();
 const { user, ready: authReady, busy: authBusy, restore, signOut } = useAuth();
 
