@@ -517,7 +517,14 @@ h1 span {
   padding: 18px 0 28px;
   border-top: 1px solid rgba(255,255,255,0.12);
   color: rgba(234,246,248,0.66);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
 }
+.site-identity { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; }
+.copyright a { color: rgba(234,246,248,0.82); text-decoration: none; }
+.copyright a:hover { color: white; text-decoration: underline; }
 
 .auth-backdrop {
   position: fixed;

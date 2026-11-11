@@ -16,13 +16,14 @@
     "showNews": false
   },
   "site": {
-    "name": "SpringAutumn GIS",
-    "brand": "春秋GIS",
+    "name": "春秋舆图手记",
+    "brand": "春秋舆图手记",
+    "domain": "springautumngis.com",
     "contact": {
       "name": "凡语春秋",
       "email": "spring@springautumngis.com",
       "phone": "18679593530",
-      "record": "黔，xxxxx"
+      "record": "黔ICP备2026018577号-1"
     }
   },
   "stats": {

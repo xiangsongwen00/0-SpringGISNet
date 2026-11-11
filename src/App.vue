@@ -1,11 +1,11 @@
 <template>
-  <HistoryPreviewRoom v-if="historyOpen" :user="user" @close="historyOpen = false" />
+  <HistoryPreviewRoom v-if="historyOpen" :user="user" :auth-entry-visible="authEntryVisible" @close="historyOpen = false" />
   <div v-else class="site-shell" :data-device="deviceType">
     <header class="topbar">
       <div class="brand-wrap">
         <div class="brand-mark">春</div>
         <div class="brand-text">
-          <span class="brand-cn">春秋GIS</span>
+          <span class="brand-cn">春秋舆图手记</span>
           <small class="brand-en">SpringAutumn GIS</small>
         </div>
       </div>
@@ -18,12 +18,14 @@
         <a v-if="config.page.showNotes" href="#notes">笔记</a>
       </nav>
       <div class="nav-actions">
+        <template v-if="authEntryVisible">
         <template v-if="authReady && user">
           <span class="account-name" :title="`账户 ${user.username}`">{{ user.username }}</span>
           <button class="ghost-btn compact-btn" type="button" @click="accountOpen = true">账户管理</button>
           <button class="ghost-btn compact-btn" type="button" :disabled="authBusy" @click="signOut">退出</button>
         </template>
         <button v-else class="ghost-btn compact-btn" type="button" @click="authOpen = true">登录 / 注册</button>
+        </template>
         <button class="primary-btn engine-btn" type="button" @click="scrollToSection('engine')">查看引擎</button>
       </div>
     </header>
@@ -151,7 +153,7 @@
             <div class="brand-wrap footer-brand">
             <div class="brand-mark">春</div>
             <div class="brand-text">
-              <span class="brand-cn">春秋GIS</span>
+              <span class="brand-cn">春秋舆图手记</span>
               <small class="brand-en">SpringAutumn GIS</small>
             </div>
           </div>
@@ -190,15 +192,21 @@
           </div>
         </div>
       </div>
-      <div class="copyright">© 2026 SpringAutumn GIS · 备案号：{{ config.site.contact.record }}</div>
+      <div class="copyright">
+        <div class="site-identity">
+          <span>© 2026 {{ config.site.brand }}</span>
+          <a class="site-domain" :href="`https://${config.site.domain}`" rel="home">{{ config.site.domain }}</a>
+        </div>
+        <a class="icp-record" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">{{ config.site.contact.record }}</a>
+      </div>
     </footer>
-    <AuthDialog v-if="authOpen" :device-type="deviceType" :initial-mode="authInitialMode" @close="authOpen = false" />
-    <AccountDialog v-if="accountOpen && user" :user="user" @close="accountOpen = false" />
+    <AuthDialog v-if="authEntryVisible && authOpen" :device-type="deviceType" :initial-mode="authInitialMode" @close="authOpen = false" />
+    <AccountDialog v-if="authEntryVisible && accountOpen && user" :user="user" @close="accountOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import AuthDialog from './components/AuthDialog.vue';
 import AccountDialog from './components/AccountDialog.vue';
 import GlobeDemo from './components/GlobeDemo.vue';
@@ -210,15 +218,40 @@ import siteConfig from './config/site.config.json';
 const config = siteConfig;
 
 const githubUrl = 'https://github.com/xiangsongwen00/SpringAndAutumnGIS.git';
-const quickAuthPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('auth') === 'quick';
-const authOpen = ref(quickAuthPreview);
-const authInitialMode = ref<'login' | 'quick'>(quickAuthPreview ? 'quick' : 'login');
+const authOpen = ref(false);
+const authEntryVisible = ref(false);
+const authInitialMode = ref<'login' | 'quick'>('login');
 const accountOpen = ref(false);
 const historyOpen = ref(false);
 const { deviceType } = useDeviceType();
 const { user, ready: authReady, busy: authBusy, restore, signOut } = useAuth();
 
-onMounted(restore);
+const revealAuthEntry = (username: string, password: string): boolean => {
+  const accepted = username === 'admin' && password === 'springgis';
+  authEntryVisible.value = accepted;
+  if (!accepted) {
+    authOpen.value = false;
+    accountOpen.value = false;
+    return false;
+  }
+  void restore();
+  return true;
+};
+
+const hideAuthEntry = (): void => {
+  authEntryVisible.value = false;
+  authOpen.value = false;
+  accountOpen.value = false;
+  void signOut().catch(() => undefined);
+};
+
+onMounted(() => {
+  window.windows = { login: revealAuthEntry, logout: hideAuthEntry };
+});
+
+onBeforeUnmount(() => {
+  delete window.windows;
+});
 
 const articles = [
   {

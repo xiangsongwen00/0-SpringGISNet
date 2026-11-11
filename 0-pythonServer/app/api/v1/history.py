@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 
 from ...config import get_settings
 from ...models import HistoryArticle, HistoryCatalog
@@ -25,6 +26,18 @@ CONTENT_ROOT = Path(settings.history_content_dir).resolve()
 DOCS_ROOT = (CONTENT_ROOT / "docs").resolve()
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 LEGACY_LOCAL_DOCUMENTS = {"旧版阅读器说明.md", "旧版自动定位实机验收.md"}
+BOOK_DIVISIONS = {"A": "经部", "B": "史部", "C": "子部", "D": "集部"}
+BOOK_CATEGORY_NAMES = {
+    "A01": "经部总类",
+    "B01": "正史", "B02": "编年与通史", "B03": "古史杂传", "B04": "历史笔记",
+    "B05": "地方与纪事", "B06": "近世史料", "B07": "国别与政权史", "B08": "传记",
+    "B09": "制度与掌故",
+    "C01": "先秦诸子", "C02": "儒学与蒙学", "C03": "兵农医技", "C04": "艺术与音律",
+    "C05": "杂家", "C06": "笔记杂录", "C07": "类书", "C08": "志怪与轶闻", "C09": "古典小说",
+    "C10": "通俗小说", "C11": "近世小说", "C12": "道教", "C13": "佛典", "C14": "续藏佛典",
+    "D01": "别集与楚辞", "D02": "总集", "D03": "文论", "D04": "诗话", "D05": "戏曲",
+    "D06": "词学一", "D07": "词学二", "D08": "词学三", "D09": "词学四",
+}
 
 
 def _require_editor(user: CurrentUser) -> None:
@@ -241,7 +254,7 @@ def update_catalog(
 @router.get("/text/books")
 def list_books(
     db: DbSession,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0, le=1_000_000),
 ) -> list[dict[str, object]]:
     rows = db.execute(text("""
@@ -250,7 +263,15 @@ def list_books(
         FROM history.books b LEFT JOIN history.chapters c USING (book_id)
         GROUP BY b.book_id, b.title ORDER BY b.book_id LIMIT :limit OFFSET :offset
     """), {"limit": limit, "offset": offset}).mappings()
-    return [dict(row) for row in rows]
+    result: list[dict[str, object]] = []
+    for row in rows:
+        item = dict(row)
+        category_code = str(item["book_id"]).split("-", 1)[0].upper()
+        item["division"] = BOOK_DIVISIONS.get(category_code[:1], "未分类")
+        item["category_code"] = category_code
+        item["category_name"] = BOOK_CATEGORY_NAMES.get(category_code, f"库内 {category_code} 类")
+        result.append(item)
+    return result
 
 
 @router.get("/text/books/{book_id}/chapters")
@@ -285,6 +306,23 @@ def list_paragraphs(
     return [dict(row) for row in rows]
 
 
+@router.get("/text/chapters/{chapter_id}")
+def get_chapter(chapter_id: str, db: DbSession) -> dict[str, object]:
+    row = db.execute(text("""
+        SELECT c.chapter_id, c.book_id, b.title AS book_title, c.chapter_index,
+               c.title,
+               CASE WHEN btrim(c.title) = '' THEN '原记录无标题' ELSE c.title END AS display_title,
+               c.verification_status, c.source_sha256, c.decoder,
+               c.original_text, length(c.original_text) AS text_length
+        FROM history.chapters c
+        JOIN history.books b USING (book_id)
+        WHERE c.chapter_id = :chapter_id
+    """), {"chapter_id": chapter_id}).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="章节不存在")
+    return dict(row)
+
+
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -292,7 +330,7 @@ def _escape_like(value: str) -> str:
 @router.get("/text/search")
 def search_text(
     db: DbSession,
-    q: str = Query(min_length=2, max_length=80),
+    q: str = Query(min_length=1, max_length=80),
     book_id: str | None = None,
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0, le=100_000),
@@ -300,21 +338,47 @@ def search_text(
 ) -> dict[str, object]:
     if "\x00" in q or not q.strip():
         raise HTTPException(status_code=422, detail="检索词不能为空")
-    term = unicodedata.normalize("NFKC", q) if normalized else q
+    raw_term = q.strip()
+    if len(raw_term) < 2 and not book_id:
+        raise HTTPException(status_code=422, detail="全库检索至少输入2个字；检索单字请先选择书目")
+    term = unicodedata.normalize("NFKC", raw_term) if normalized else raw_term
     column = "p.normalized_text" if normalized else "p.original_text"
     book_filter = " AND c.book_id = :book_id" if book_id else ""
-    # The only interpolated fragments are server-selected constants; user values stay bound parameters.
-    query = text(f"""
-        SELECT c.book_id, b.title AS book_title, c.chapter_id,
-               CASE WHEN btrim(c.title) = '' THEN '原记录无标题' ELSE c.title END AS chapter_title,
-               p.ordinal, p.original_text, p.normalized_text, c.verification_status
-        FROM history.paragraphs p
-        JOIN history.chapters c USING (chapter_id)
-        JOIN history.books b USING (book_id)
-        WHERE {column} LIKE :pattern ESCAPE '\\'{book_filter}
-        ORDER BY c.book_id, c.chapter_index, p.ordinal
-        LIMIT :limit OFFSET :offset
-    """)
+    # pg_trgm cannot form a trigram for one- or two-character terms. For those
+    # queries, collect only the requested paragraph rows before joining and
+    # sorting metadata. This lets PostgreSQL stop as soon as it has enough
+    # matches instead of scanning and sorting all 3M+ paragraphs.
+    if len(term) < 3:
+        short_book_join = " JOIN history.chapters filter_c USING (chapter_id)" if book_id else ""
+        short_book_filter = " AND filter_c.book_id = :book_id" if book_id else ""
+        query = text(f"""
+            WITH matches AS MATERIALIZED (
+                SELECT p.chapter_id, p.ordinal, p.original_text, p.normalized_text
+                FROM history.paragraphs p{short_book_join}
+                WHERE {column} LIKE :pattern ESCAPE '\\'{short_book_filter}
+                LIMIT :limit OFFSET :offset
+            )
+            SELECT c.book_id, b.title AS book_title, c.chapter_id,
+                   CASE WHEN btrim(c.title) = '' THEN '原记录无标题' ELSE c.title END AS chapter_title,
+                   m.ordinal, m.original_text, m.normalized_text, c.verification_status
+            FROM matches m
+            JOIN history.chapters c USING (chapter_id)
+            JOIN history.books b USING (book_id)
+            ORDER BY c.book_id, c.chapter_index, m.ordinal
+        """)
+    else:
+        # The only interpolated fragments are server-selected constants; user values stay bound parameters.
+        query = text(f"""
+            SELECT c.book_id, b.title AS book_title, c.chapter_id,
+                   CASE WHEN btrim(c.title) = '' THEN '原记录无标题' ELSE c.title END AS chapter_title,
+                   p.ordinal, p.original_text, p.normalized_text, c.verification_status
+            FROM history.paragraphs p
+            JOIN history.chapters c USING (chapter_id)
+            JOIN history.books b USING (book_id)
+            WHERE {column} LIKE :pattern ESCAPE '\\'{book_filter}
+            ORDER BY c.book_id, c.chapter_index, p.ordinal
+            LIMIT :limit OFFSET :offset
+        """)
     parameters: dict[str, object] = {
         "pattern": f"%{_escape_like(term)}%",
         "limit": limit + 1,
@@ -322,8 +386,18 @@ def search_text(
     }
     if book_id:
         parameters["book_id"] = book_id
-    db.execute(text("SET LOCAL statement_timeout = '8s'"))
-    rows = [dict(row) for row in db.execute(query, parameters).mappings()]
+    db.execute(text("SET LOCAL statement_timeout = '20s'"))
+    try:
+        rows = [dict(row) for row in db.execute(query, parameters).mappings()]
+    except OperationalError as exc:
+        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        if sqlstate == "57014":
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="原文检索超时，请增加检索词字数或指定书目后重试",
+            ) from exc
+        raise
     return {
         "query": q,
         "normalized": normalized,

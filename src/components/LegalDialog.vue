@@ -5,8 +5,8 @@
       <span class="kicker">版本：2026-09-25</span>
 
       <template v-if="kind === 'privacy'">
-        <h2 id="privacy-title">春秋GIS 隐私保护说明</h2>
-        <p class="legal-lead">本说明适用于最小信息账户注册、登录、账户内数据管理和技术反馈。处理者：凡语春秋（春秋GIS）；联系邮箱：spring@springautumngis.com。</p>
+        <h2 id="privacy-title">春秋舆图手记隐私保护说明</h2>
+        <p class="legal-lead">本说明适用于最小信息账户注册、登录、账户内数据管理和技术反馈。处理者：凡语春秋（春秋舆图手记）；联系邮箱：spring@springautumngis.com。</p>
 
         <h3>我们处理的必要信息</h3>
         <ul>
@@ -41,7 +41,7 @@
       </template>
 
       <template v-else>
-        <h2 id="terms-title">春秋GIS 用户协议</h2>
+        <h2 id="terms-title">春秋舆图手记用户协议</h2>
         <p class="legal-lead">注册用于登录、记录用户自己的数据管理状态和提交技术反馈。账户是内部逻辑标识，不等同于实名身份、会员资格或商业授权。</p>
 
         <h3>账户性质</h3>

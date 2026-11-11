@@ -587,10 +587,11 @@ python index.py --migrate
 
 - `GET /api/v1/history/catalog`：返回 `cases.json` 目录以及已发布文章清单。
 - `GET /api/v1/history/articles/{article_id}`：返回经过 SHA256 完整性核验的 UTF-8 Markdown。
-- `GET /api/v1/history/text/books`：分页读取原文书目。
+- `GET /api/v1/history/text/books`：分页读取原文书目；每项包含由库内编号还原的经、史、子、集 `division`、`category_code` 和 `category_name`。
 - `GET /api/v1/history/text/books/{book_id}/chapters`：分页读取章节。
+- `GET /api/v1/history/text/chapters/{chapter_id}`：读取书名、章节元数据、核验状态、来源 SHA256 和整章纯文本正文。
 - `GET /api/v1/history/text/chapters/{chapter_id}/paragraphs`：分页读取段落。
-- `GET /api/v1/history/text/search?q=长安&normalized=false`：字面短语检索；`q` 为 2-80 字，单页最多 50 条，服务端查询超时为 8 秒。
+- `GET /api/v1/history/text/search?q=长安&normalized=false`：字面短语检索；全库至少 2 字，指定 `book_id` 后允许 1 字，最长 80 字，单页最多 50 条，服务端查询超时为 8 秒。
 
 公开接口只暴露文献内容及来源标识，不返回用户资料。原文库只读，API 没有原文删除、任意 SQL 或本机文件读取接口。
 

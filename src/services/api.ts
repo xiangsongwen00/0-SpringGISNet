@@ -368,6 +368,33 @@ export interface HistorySearchResponse {
   has_more: boolean;
 }
 
+export interface HistoryBookSummary {
+  book_id: string;
+  title: string;
+  chapter_count: number;
+  text_chapter_count: number;
+  division: '经部' | '史部' | '子部' | '集部' | '未分类';
+  category_code: string;
+  category_name: string;
+}
+
+export interface HistoryChapterSummary {
+  chapter_id: string;
+  book_id: string;
+  chapter_index: number;
+  title: string;
+  display_title: string;
+  verification_status: string;
+  source_sha256: string;
+  decoder: string;
+  text_length: number | null;
+}
+
+export interface HistoryChapter extends HistoryChapterSummary {
+  book_title: string;
+  original_text: string | null;
+}
+
 export function getHistoryCatalog(): Promise<HistoryCatalogResponse> {
   return jsonRequest('/history/catalog', { method: 'GET' });
 }
@@ -376,8 +403,21 @@ export function getHistoryArticle(articleId: string): Promise<HistoryArticle> {
   return jsonRequest(`/history/articles/${encodeURIComponent(articleId)}`, { method: 'GET' });
 }
 
-export function searchHistoryText(query: string, normalized = false): Promise<HistorySearchResponse> {
+export function getHistoryBooks(): Promise<HistoryBookSummary[]> {
+  return jsonRequest('/history/text/books?limit=1000', { method: 'GET' });
+}
+
+export function getHistoryChapters(bookId: string, offset = 0): Promise<HistoryChapterSummary[]> {
+  return jsonRequest(`/history/text/books/${encodeURIComponent(bookId)}/chapters?limit=500&offset=${offset}`, { method: 'GET' });
+}
+
+export function getHistoryChapter(chapterId: string): Promise<HistoryChapter> {
+  return jsonRequest(`/history/text/chapters/${encodeURIComponent(chapterId)}`, { method: 'GET' });
+}
+
+export function searchHistoryText(query: string, normalized = false, bookId = ''): Promise<HistorySearchResponse> {
   const params = new URLSearchParams({ q: query, normalized: String(normalized) });
+  if (bookId) params.set('book_id', bookId);
   return jsonRequest(`/history/text/search?${params}`, { method: 'GET' });
 }
 

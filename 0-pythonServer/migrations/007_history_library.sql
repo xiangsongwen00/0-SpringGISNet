@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS history.chapter_assets (
     PRIMARY KEY (chapter_id, ordinal)
 );
 
-CREATE TABLE IF NOT EXISTS history_articles (
+CREATE TABLE IF NOT EXISTS public.history_articles (
     id BIGSERIAL PRIMARY KEY,
     article_uuid UUID NOT NULL UNIQUE,
     path VARCHAR(1024) NOT NULL UNIQUE,
@@ -88,16 +88,16 @@ CREATE TABLE IF NOT EXISTS history_articles (
     sort_order INTEGER NOT NULL DEFAULT 0,
     sha256 CHAR(64) NOT NULL CHECK (sha256 ~ '^[a-f0-9]{64}$'),
     byte_size BIGINT NOT NULL CHECK (byte_size > 0),
-    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_by BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
+    updated_by BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_history_articles_published_sort ON history_articles(published, sort_order);
-CREATE INDEX IF NOT EXISTS idx_history_articles_case ON history_articles(case_id);
-CREATE TABLE IF NOT EXISTS history_catalogs (
+CREATE INDEX IF NOT EXISTS idx_history_articles_published_sort ON public.history_articles(published, sort_order);
+CREATE INDEX IF NOT EXISTS idx_history_articles_case ON public.history_articles(case_id);
+CREATE TABLE IF NOT EXISTS public.history_catalogs (
     catalog_key VARCHAR(64) PRIMARY KEY,
     payload JSONB NOT NULL,
-    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    updated_by BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
